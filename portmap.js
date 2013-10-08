@@ -10,7 +10,7 @@ var app = require('./lib');
 
 var rpc = app.rpc;
 var PortmapDumpReply = app.portmap.PortmapDumpReply;
-var PortmapGetPortArg = app.portmap.PortmapGetPortArg;
+var PortmapGetPortCall = app.portmap.PortmapGetPortCall;
 var PortmapGetPortReply = app.portmap.PortmapGetPortReply;
 
 var CLI_OPTIONS = [
@@ -75,78 +75,24 @@ function onPortmapDump(call, reply) {
     res.end();
 }
 
-function onPortmapGetPort(call, reply) {
-    this.log.debug({
-        call: call.toString()
-    }, 'getport: entered');
 
-    var arg = new PortmapGetPortArg(call);
-    this.log.debug({
-        arg: arg.toString()
-    }, 'getport: arg');
+function onPortmapGetPort(call, reply, remain) {
+    var log = this.log;
+    // var req = new PortmapGetPortCall(call);
+    // req.write(call.buffer);
 
     var res = new PortmapGetPortReply(reply);
     res.pipe(reply);
 
-    var port = 0;
+    res.setPort({
+        prog: 100003,
+        prot: 6,
+        vers: 3
+    });
 
-    switch(arg.prog) {
-    case 100000:
-        switch(arg.vers) {
-        case 2:
-            switch(arg.prot) {
-            case 6:
-                port = 111;
-                break;
-            default:
-                break;
-            }
-            break;
-        default:
-            break;
-        }
-        break;
-
-    case 100003:
-        switch(arg.vers) {
-        case 3:
-            switch(arg.prot) {
-            case 6:
-                port = 2049;
-                break;
-            default:
-                break;
-            }
-            break;
-        default:
-            break;
-        }
-        break;
-
-    case 100005:
-        switch(arg.vers) {
-        case 3:
-            switch(arg.prot) {
-            case 6:
-                port = 1892;
-                break;
-            default:
-                break;
-            }
-            break;
-        default:
-            break;
-        }
-        break;
-
-    default:
-        break;
-    }
-
-    res.setPort(port);
-
-    this.log.debug({
-        reply: res.toString()
+    log.debug({
+        req: call.toString(),
+        res: res.toString()
     }, 'getport: done');
 
     res.end();
@@ -180,7 +126,7 @@ function onPortmapGetPort(call, reply) {
         level: opts.verbose ? 'debug' : 'info',
         stream: process.stdout,
         serializers: bunyan.stdSerializers
-    })
+    });
 
     server = rpc.createServer({
         name: 'portmap',

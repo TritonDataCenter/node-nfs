@@ -31,7 +31,6 @@ var CLI_OPTIONS = [
 ///--- Handlers
 
 function onExports(call, reply) {
-    console.log(call)
     var res = new ExportsReply(reply);
     res.pipe(reply);
     res.end();
@@ -90,7 +89,7 @@ function onExports(call, reply) {
         level: 'info',
         stream: process.stdout,
         serializers: bunyan.stdSerializers
-    })
+    });
 
     server = rpc.createServer({
         name: 'mount',
