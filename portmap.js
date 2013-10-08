@@ -10,6 +10,8 @@ var app = require('./lib');
 
 var rpc = app.rpc;
 var PortmapDumpReply = app.portmap.PortmapDumpReply;
+var PortmapGetPortArg = app.portmap.PortmapGetPortArg;
+var PortmapGetPortReply = app.portmap.PortmapGetPortReply;
 
 var CLI_OPTIONS = [
     {
@@ -73,6 +75,83 @@ function onPortmapDump(call, reply) {
     res.end();
 }
 
+function onPortmapGetPort(call, reply) {
+    this.log.debug({
+        call: call.toString()
+    }, 'getport: entered');
+
+    var arg = new PortmapGetPortArg(call);
+    this.log.debug({
+        arg: arg.toString()
+    }, 'getport: arg');
+
+    var res = new PortmapGetPortReply(reply);
+    res.pipe(reply);
+
+    var port = 0;
+
+    switch(arg.prog) {
+    case 100000:
+        switch(arg.vers) {
+        case 2:
+            switch(arg.prot) {
+            case 6:
+                port = 111;
+                break;
+            default:
+                break;
+            }
+            break;
+        default:
+            break;
+        }
+        break;
+
+    case 100003:
+        switch(arg.vers) {
+        case 3:
+            switch(arg.prot) {
+            case 6:
+                port = 2049;
+                break;
+            default:
+                break;
+            }
+            break;
+        default:
+            break;
+        }
+        break;
+
+    case 100005:
+        switch(arg.vers) {
+        case 3:
+            switch(arg.prot) {
+            case 6:
+                port = 1892;
+                break;
+            default:
+                break;
+            }
+            break;
+        default:
+            break;
+        }
+        break;
+
+    default:
+        break;
+    }
+
+    res.setPort(port);
+
+    this.log.debug({
+        reply: res.toString()
+    }, 'getport: done');
+
+    res.end();
+}
+
 
 
 ///--- Mainline
@@ -109,10 +188,19 @@ function onPortmapDump(call, reply) {
         program: 100000,
         version: 2,
         procedures: {
+            getport: 3,
             dump: 4
         }
     });
 
+    // PMAPPROC_NULL(void)                      = 0;
+    // bool PMAPPROC_SET(mapping)               = 1;
+    // bool PMAPPROC_UNSET(mapping)             = 2;
+    // unsigned int PMAPPROC_GETPORT(mapping)   = 3;
+    // pmaplist PMAPPROC_DUMP(void)             = 4;
+    // call_result PMAPPROC_CALLIT(call_args)   = 5;
+
+    server.on('getport', onPortmapGetPort.bind(server));
     server.on('dump', onPortmapDump.bind(server));
 
     server.listen(opts.port, function onListening() {
