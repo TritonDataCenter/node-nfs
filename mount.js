@@ -67,17 +67,17 @@ function onDump(call, reply) {
 
     res.addMount({
         hostname: 'us-east1.com',
-        dirpath: '/manta/foo',
+        dirpath: '/manta/foo'
     }, true);
 
     res.addMount({
         hostname: 'us-east1.com',
-        dirpath: '/manta/bar/baz',
+        dirpath: '/manta/bar/baz'
     }, true);
 
     res.addMount({
         hostname: 'joyent.com',
-        dirpath: '/shared/private/data',
+        dirpath: '/shared/private/data'
     }, true);
 
     res.end();
