@@ -78,20 +78,17 @@ function onPortmapDump(call, reply) {
 
 function onPortmapGetPort(call, reply, remain) {
     var log = this.log;
-    // var req = new PortmapGetPortCall(call);
-    // req.write(call.buffer);
+    var req = new PortmapGetPortCall(call);
+    // XXX req.write(call.buffer);
 
     var res = new PortmapGetPortReply(reply);
     res.pipe(reply);
 
-    res.setPort({
-        prog: 100003,
-        prot: 6,
-        vers: 3
-    });
+    // XXX need to wait for args and then use those to set the port
+    // res.setPort(req);
 
     log.debug({
-        req: call.toString(),
+        req: req.toString(),
         res: res.toString()
     }, 'getport: done');
 
@@ -139,12 +136,12 @@ function onPortmapGetPort(call, reply, remain) {
         }
     });
 
-    // PMAPPROC_NULL(void)                      = 0;
-    // bool PMAPPROC_SET(mapping)               = 1;
-    // bool PMAPPROC_UNSET(mapping)             = 2;
-    // unsigned int PMAPPROC_GETPORT(mapping)   = 3;
-    // pmaplist PMAPPROC_DUMP(void)             = 4;
-    // call_result PMAPPROC_CALLIT(call_args)   = 5;
+    //              PMAPPROC_NULL(void)        = 0;
+    // bool         PMAPPROC_SET(mapping)      = 1;
+    // bool         PMAPPROC_UNSET(mapping)    = 2;
+    // unsigned int PMAPPROC_GETPORT(mapping)  = 3;
+    // pmaplist     PMAPPROC_DUMP(void)        = 4;
+    // call_result  PMAPPROC_CALLIT(call_args) = 5;
 
     server.on('getport', onPortmapGetPort.bind(server));
     server.on('dump', onPortmapDump.bind(server));
