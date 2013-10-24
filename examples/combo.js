@@ -18,18 +18,42 @@ var statvfs = require('statvfs');
 
 ///--- Globals
 
+var FILE_HANDLES = {};
 var MOUNTS = {};
 
 
 
 ////--- Private Functions
 
-function authorize(req, res, next) {
-    if (!req.user_allowed([0])) {
-        next(new nfs.MountAccessError('uid 0 required'));
+function handle_stat_error(err, req, res, next) {
+    req.log.warn(err, 'stat failed');
+    if (err.code === 'ENOENT') {
+        res.error(nfs.NFS3ERR_NOENT);
+        next(false);
+    } else if (err.code === 'EACCES') {
+        req.log.warn({
+            err: err,
+            path: p
+        }, 'unable to read directory');
+        res.error(nfs.NFS3ERR_ACCES);
+        next(false);
     } else {
-        next();
+        res.error(nfs.NFS3ERR_IO);
+        next(false);
     }
+}
+
+
+function authorize(req, res, next) {
+    // Let everything through
+    // if (!req.is_user(0)) {
+    //     res.status = nfs.NFS3ERR_ACCES;
+    //     res.send();
+    //     next(false);
+    // } else {
+    //     next();
+    // }
+    next();
 }
 
 
@@ -39,24 +63,17 @@ function check_dirpath(req, res, next) {
     var p = path.normalize(req.dirpath);
     req._dirpath = p;
     if (p.length > 64) {
-        next(new nfs.MountNameTooLongError(p + ' > 64 bytes'));
+        res.error(nfs.NFS3ERR_NAMETOOLONG);
+        next(false);
+        return;
     }
 
     fs.stat(p, function (err, stats) {
         if (err) {
-            if (err.code === 'ENOENT') {
-                next(new nfs.MountNoEntError(err));
-            } else if (err.code === 'EACCES') {
-                req.log.warn({
-                    err: err,
-                    path: p
-                }, 'unable to read directory');
-                next(new nfs.MountAccessError(err));
-            } else {
-                next(new nfs.MountIOError(err, 'internal error'));
-            }
+            handle_stat_error(err, req, res, next);
         } else if (!stats.isDirectory()) {
-            next(new nfs.MountNotDirError());
+            res.error(nfs.NFS3ERR_NOTDIR);
+            next(false);
         } else {
             next();
         }
@@ -67,15 +84,21 @@ function check_dirpath(req, res, next) {
 function mount(req, res, next) {
     var uuid = libuuid.create();
     MOUNTS[uuid] = req._dirpath;
+    FILE_HANDLES[uuid] = req._dirpath;
     res.setFileHandle(uuid);
     res.send();
     next();
 }
 
 
-function check_mount_table(req, res, next) {
-    if (!MOUNTS[req.object]) {
-        next(new nfs.NfsBadHandleError(req.object));
+function check_fh_table(req, res, next) {
+    if (!FILE_HANDLES[req.object]) {
+        req.log.warn({
+            call: req.toString(),
+            object: req.object
+        }, 'check_fh_table: object not found');
+        res.error(nfs.NFS3ERR_STALE);
+        next(false);
     } else {
         next();
     }
@@ -83,10 +106,12 @@ function check_mount_table(req, res, next) {
 
 
 function get_attr(req, res, next) {
-    var f = MOUNTS[req.object]
+    var f = FILE_HANDLES[req.object]
     fs.lstat(f, function (err, stats) {
         if (err) {
-            next(new nfs.NfsStaleError(err, f));
+            req.log.warn(err, 'get_attr: lstat failed');
+            res.error(nfs.NFS3ERR_STALE);
+            next(false);
         } else {
             res.setAttributes(stats);
             res.send();
@@ -97,10 +122,10 @@ function get_attr(req, res, next) {
 
 
 function fs_set_attrs(req, res, next) {
-    var f = MOUNTS[req.fsroot];
+    var f = FILE_HANDLES[req.object];
     fs.lstat(f, function (err, stats) {
         if (err) {
-            next(new nfs.NfsStaleError(err, f));
+            handle_stats_error(err, req, res, next);
         } else {
             req._stats = stats;
             res.setAttributes(stats);
@@ -123,7 +148,12 @@ function fs_info(req, res, next) {
         seconds: 0,
         nseconds: 1000000
     }; // milliseconds
-    res.properties = nfs.FSF3_LINK | nfs.FSF3_SYMLINK;
+
+    // TODO: this isn't right, for some reason...
+    res.properties =
+        nfs.FSF3_LINK     |
+        nfs.FSF3_SYMLINK;
+
     res.send();
     next();
 }
@@ -131,10 +161,12 @@ function fs_info(req, res, next) {
 
 
 function fs_stat(req, res, next) {
-    var f = MOUNTS[req.fsroot];
+    var f = FILE_HANDLES[req.object];
     statvfs(f, function (err, stats) {
         if (err) {
-            next(new nfs.NfsStaleError(err, f));
+            req.log.warn(err, 'fs_stat: statvfs failed');
+            res.error(nfs.NFS3ERR_STALE);
+            next(false);
         } else {
             res.tbytes = stats.blocks * stats.bsize;
             res.fbytes = stats.bfree * stats.bsize;
@@ -150,6 +182,58 @@ function fs_stat(req, res, next) {
 }
 
 
+function path_conf(req, res, next) {
+    // var f = FILE_HANDLES[req.object];
+    // TODO: call pathconf(2)
+    res.linkmax = 32767;
+    res.name_max = 255;
+    res.no_trunc = true;
+    res.chown_restricted = true;
+    res.case_insensitive = false;
+    res.case_preserving = true;
+    res.send();
+    next();
+}
+
+
+function access(req, res, next) {
+    res.access =
+        nfs.ACCESS3_READ    |
+        nfs.ACCESS3_LOOKUP  |
+        nfs.ACCESS3_MODIFY  |
+        nfs.ACCESS3_EXTEND  |
+        nfs.ACCESS3_DELETE  |
+        nfs.ACCESS3_EXECUTE;
+    res.send();
+    next();
+}
+
+
+function lookup(req, res, next) {
+    var dir = FILE_HANDLES[req.what.dir];
+    var fname = path.resolve(dir, path.normalize(req.what.name));
+    fs.lstat(fname, function (err, stats) {
+        if (err) {
+            handle_stat_error(err, req, res, next);
+        } else {
+            var uuid = libuuid.create();
+            FILE_HANDLES[uuid] = fname;
+            res.object = uuid;
+            res.setObjAttributes(stats);
+            var f = FILE_HANDLES[req.what.dir];
+            fs.lstat(f, function (err2, stats2) {
+                if (err2) {
+                    handle_stats_error(err2, req, res, next);
+                } else {
+                    res.setDirAttributes(stats2);
+                    res.send();
+                    next();
+                }
+            });
+        }
+    });
+}
+
 
 
 ///--- Mainline
@@ -158,7 +242,7 @@ function fs_stat(req, res, next) {
     function logger(name) {
         return (bunyan.createLogger({
             name: name,
-            level: 'trace', //process.env.LOG_LEVEL || 'info',
+            level: process.env.LOG_LEVEL || 'info',
             src: true,
             stream: process.stdout,
             serializers: rpc.serializers
@@ -179,7 +263,7 @@ function fs_stat(req, res, next) {
         log: logger('nfsd')
     });
 
-    portmapd.getPort(function get_port(req, res, next) {
+    portmapd.get_port(function get_port(req, res, next) {
         if (req.mapping.prog === 100003) {
             res.port = 2049;
         } else if (req.mapping.prog === 100005) {
@@ -192,15 +276,19 @@ function fs_stat(req, res, next) {
 
     mountd.mnt(authorize, check_dirpath, mount);
 
-    nfsd.get_attr(authorize, check_mount_table, get_attr);
-    nfsd.fs_info(authorize, check_mount_table, fs_set_attrs, fs_info);
-    nfsd.fs_stat(authorize, check_mount_table, fs_set_attrs, fs_stat);
+    nfsd.access(authorize, check_fh_table, fs_set_attrs, access);
+    nfsd.get_attr(authorize, check_fh_table, get_attr);
+    nfsd.fs_info(authorize, check_fh_table, fs_set_attrs, fs_info);
+    nfsd.fs_stat(authorize, check_fh_table, fs_set_attrs, fs_stat);
+    nfsd.path_conf(authorize, check_fh_table, fs_set_attrs, path_conf);
+    nfsd.lookup(authorize, check_fh_table, lookup);
 
     var log = logger('audit');
-    function after(name, req, res) {
+    function after(name, req, res, err) {
         log.info({
-            rpc_call: req,
-            rpc_reply: res
+            call: req.toString(),
+            reply: res.toString(),
+            err: err
         }, '%s: handled', name);
     }
     portmapd.on('after', after);
