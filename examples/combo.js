@@ -13,6 +13,7 @@ var libuuid = require('libuuid');
 var nfs = require('../lib');
 var rpc = require('oncrpc');
 var statvfs = require('statvfs');
+var vasync = require('vasync')
 
 
 
@@ -25,26 +26,7 @@ var MOUNTS = {};
 
 ////--- Private Functions
 
-function handle_stat_error(err, req, res, next) {
-    req.log.warn(err, 'stat failed');
-    if (err.code === 'ENOENT') {
-        res.error(nfs.NFS3ERR_NOENT);
-        next(false);
-    } else if (err.code === 'EACCES') {
-        req.log.warn({
-            err: err,
-            path: p
-        }, 'unable to read directory');
-        res.error(nfs.NFS3ERR_ACCES);
-        next(false);
-    } else {
-        res.error(nfs.NFS3ERR_IO);
-        next(false);
-    }
-}
-
-
-function authorize(req, res, next) {
+function  authorize(req, res, next) {
     // Let everything through
     // if (!req.is_user(0)) {
     //     res.status = nfs.NFS3ERR_ACCES;
@@ -70,7 +52,7 @@ function check_dirpath(req, res, next) {
 
     fs.stat(p, function (err, stats) {
         if (err) {
-            handle_stat_error(err, req, res, next);
+            nfs.handle_error(err, req, res, next);
         } else if (!stats.isDirectory()) {
             res.error(nfs.NFS3ERR_NOTDIR);
             next(false);
@@ -125,7 +107,7 @@ function fs_set_attrs(req, res, next) {
     var f = FILE_HANDLES[req.object];
     fs.lstat(f, function (err, stats) {
         if (err) {
-            handle_stats_error(err, req, res, next);
+            nfs.handle_error(err, req, res, next);
         } else {
             req._stats = stats;
             res.setAttributes(stats);
@@ -211,24 +193,73 @@ function access(req, res, next) {
 
 function lookup(req, res, next) {
     var dir = FILE_HANDLES[req.what.dir];
-    var fname = path.resolve(dir, path.normalize(req.what.name));
-    fs.lstat(fname, function (err, stats) {
+
+    fs.lstat(dir, function (err, stats) {
         if (err) {
-            handle_stat_error(err, req, res, next);
+            nfs.handle_error(err, req, res, next);
         } else {
-            var uuid = libuuid.create();
-            FILE_HANDLES[uuid] = fname;
-            res.object = uuid;
-            res.setObjAttributes(stats);
-            var f = FILE_HANDLES[req.what.dir];
+            res.setDirAttributes(stats);
+
+            var f = path.resolve(dir, req.what.name);
             fs.lstat(f, function (err2, stats2) {
                 if (err2) {
-                    handle_stats_error(err2, req, res, next);
+                    nfs.handle_error(err2, req, res, next);
                 } else {
-                    res.setDirAttributes(stats2);
+
+
+                    var uuid = libuuid.create();
+                    FILE_HANDLES[uuid] = f;
+
+                    res.object = uuid;
+                    res.setAttributes(stats2);
+
                     res.send();
                     next();
                 }
+            });
+        }
+    });
+}
+
+
+function readdir(req, res, next) {
+    var dir = FILE_HANDLES[req.dir];
+    fs.readdir(dir, function (err, files) {
+        if (err) {
+            nfs.handle_error(err, req, res, next);
+        } else {
+            res.eof = (files.length < req.count);
+            res.setDirAttributes(req._stats);
+
+            var barrier = vasync.barrier();
+            var error = null;
+
+            barrier.once('drain', function () {
+                if (error) {
+                    nfs.handle_error(error, req, res, next);
+                } else {
+                    res.send();
+                    next();
+                }
+            });
+
+            files.forEach(function (f) {
+                barrier.start('stat::' + f);
+
+                var p = path.join(dir, f);
+
+                fs.stat(p, function (err2, stat) {
+                    barrier.done('stat::' + f);
+                    if (err2) {
+                        error = error || err2;
+                    } else {
+                        res.addEntry({
+                            fileid: stat.ino,
+                            name: f,
+                            cookie: stat.mtime.getTime()
+                        });
+                    }
+                });
             });
         }
     });
@@ -242,7 +273,7 @@ function lookup(req, res, next) {
     function logger(name) {
         return (bunyan.createLogger({
             name: name,
-            level: process.env.LOG_LEVEL || 'info',
+            level: process.env.LOG_LEVEL || 'debug',
             src: true,
             stream: process.stdout,
             serializers: rpc.serializers
@@ -250,16 +281,18 @@ function lookup(req, res, next) {
         return (l);
     }
 
-
     var portmapd = rpc.createPortmapServer({
+        name: 'portmapd',
         log: logger('portmapd')
     });
 
     var mountd = nfs.createMountServer({
+        name: 'mountd',
         log: logger('mountd')
     });
 
     var nfsd = nfs.createNfsServer({
+        name: 'nfsd',
         log: logger('nfsd')
     });
 
@@ -282,6 +315,7 @@ function lookup(req, res, next) {
     nfsd.fs_stat(authorize, check_fh_table, fs_set_attrs, fs_stat);
     nfsd.path_conf(authorize, check_fh_table, fs_set_attrs, path_conf);
     nfsd.lookup(authorize, check_fh_table, lookup);
+    nfsd.readdir(authorize, check_fh_table, fs_set_attrs, readdir);
 
     var log = logger('audit');
     function after(name, req, res, err) {

@@ -27,7 +27,8 @@
         "bunyan": "0.22.0",
         "libuuid": "0.1.2",
         "tap": "0.4.4",
-        "statvfs": "2.1.0"
+        "statvfs": "2.1.0",
+        "vasync": "1.4.0"
     },
     "scripts": {
         "test": "tap test/*.test.js"
