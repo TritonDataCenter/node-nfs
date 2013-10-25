@@ -73,6 +73,12 @@ function mount(req, res, next) {
 }
 
 
+function umount(req, res, next) {
+    res.send();
+    next();
+}
+
+
 function check_fh_table(req, res, next) {
     if (!FILE_HANDLES[req.object]) {
         req.log.warn({
@@ -308,6 +314,7 @@ function readdir(req, res, next) {
     });
 
     mountd.mnt(authorize, check_dirpath, mount);
+    mountd.umnt(authorize, check_dirpath, umount);
 
     nfsd.access(authorize, check_fh_table, fs_set_attrs, access);
     nfsd.get_attr(authorize, check_fh_table, get_attr);
