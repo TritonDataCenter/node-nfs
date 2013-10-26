@@ -272,6 +272,29 @@ function readdir(req, res, next) {
 }
 
 
+function read(req, res, next) {
+    var f = FILE_HANDLES[req.file];
+    fs.open(f, 'r', function (open_err, fd) {
+        if (open_err) {
+            nfs.handle_error(open_err, req, res, next);
+            return;
+        }
+
+        res.data = new Buffer(req.count);
+        fs.read(fd, res.data, 0, req.count, req.offset, function (err, n) {
+            if (err) {
+                nfs.handle_error(err, req, res, next);
+            } else {
+                res.count = n;
+                res.eof = true; // TODO
+                res.send();
+                next();
+            }
+        });
+    });
+}
+
+
 
 ///--- Mainline
 
@@ -323,6 +346,7 @@ function readdir(req, res, next) {
     nfsd.path_conf(authorize, check_fh_table, fs_set_attrs, path_conf);
     nfsd.lookup(authorize, check_fh_table, lookup);
     nfsd.readdir(authorize, check_fh_table, fs_set_attrs, readdir);
+    nfsd.read(authorize, check_fh_table, fs_set_attrs, read);
 
     var log = logger('audit');
     function after(name, req, res, err) {
