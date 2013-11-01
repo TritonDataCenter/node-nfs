@@ -340,10 +340,10 @@ function read(req, res, next) {
     mountd.umnt(authorize, check_dirpath, umount);
 
     nfsd.access(authorize, check_fh_table, fs_set_attrs, access);
-    nfsd.get_attr(authorize, check_fh_table, get_attr);
-    nfsd.fs_info(authorize, check_fh_table, fs_set_attrs, fs_info);
-    nfsd.fs_stat(authorize, check_fh_table, fs_set_attrs, fs_stat);
-    nfsd.path_conf(authorize, check_fh_table, fs_set_attrs, path_conf);
+    nfsd.getattr(authorize, check_fh_table, get_attr);
+    nfsd.fsinfo(authorize, check_fh_table, fs_set_attrs, fs_info);
+    nfsd.fsstat(authorize, check_fh_table, fs_set_attrs, fs_stat);
+    nfsd.pathconf(authorize, check_fh_table, fs_set_attrs, path_conf);
     nfsd.lookup(authorize, check_fh_table, lookup);
     nfsd.readdir(authorize, check_fh_table, fs_set_attrs, readdir);
     nfsd.read(authorize, check_fh_table, fs_set_attrs, read);

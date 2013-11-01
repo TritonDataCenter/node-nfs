@@ -49,7 +49,7 @@ before(function (cb) {
         });
     });
 
-    server.lookup(function lookup(req, res, next) {
+    server.lookup(function (req, res, next) {
         var f = path.resolve(req.what.dir, req.what.name);
         fs.lstat(f, function (f_err, f_stats) {
             if (f_err) {
@@ -67,6 +67,65 @@ before(function (cb) {
                     }
                 });
             }
+        });
+    });
+
+    server.access(function (req, res, next) {
+        fs.lstat(req.object, function (f_err, f_stats) {
+            if (f_err) {
+                nfs.handle_error(f_err, req, res, next);
+            } else {
+                res.setAttributes(f_stats);
+                res.access =
+                    nfs.ACCESS3_READ    |
+                    nfs.ACCESS3_LOOKUP  |
+                    nfs.ACCESS3_MODIFY  |
+                    nfs.ACCESS3_EXTEND  |
+                    nfs.ACCESS3_DELETE  |
+                    nfs.ACCESS3_EXECUTE;
+                res.send();
+                next();
+            }
+        });
+    });
+
+    server.read(function (req, res, next) {
+        fs.open(req.file, 'r', function (o_err, fd) {
+            if (o_err) {
+                nfs.handle_error(o_err, req, res, next);
+                return;
+            }
+
+            var buf = new Buffer(req.count);
+            var len = buf.length;
+            var off = req.offset;
+
+            fs.read(fd, buf, 0, len, off, function (r_err, nbytes) {
+                fs.close(fd, function (c_err) {
+                    if (c_err) {
+                        nfs.handle_error(c_err, req, res, next);
+                        return;
+                    } else if (r_err) {
+                        nfs.handle_error(c_err, req, res, next);
+                        return;
+                    }
+
+                    res.count = Math.min(len, nbytes);
+                    res.data = buf.slice(0, res.count);
+
+                    fs.lstat(req.file, function (s_err, stats) {
+                        if (s_err) {
+                            nfs.handle_error(s_err, req, res, next);
+                            return;
+                        }
+
+                        res.eof = (req.offset + nbytes) === stats.size;
+                        res.setAttributes(stats);
+                        res.send();
+                        next();
+                    });
+                });
+            });
         });
     });
 
@@ -123,6 +182,35 @@ test('lookup', function (t) {
         t.equal(reply.object, '/tmp');
         t.ok(reply.obj_attributes);
         t.ok(reply.dir_attributes);
+        t.end();
+    });
+});
+
+
+test('access', function (t) {
+    this.client.access('/tmp', nfs.ACCESS3_READ, function (err, reply) {
+        t.ifError(err);
+        t.ok(reply);
+        t.equal(reply.status, 0);
+        t.ok(reply.obj_attributes);
+        t.equal(reply.access, 63);
+        t.end();
+    });
+});
+
+
+test('read', function (t) {
+    var str = '// Copyright 2013 Joyent, Inc.  All rights reserved.';
+    var len = Buffer.byteLength(str);
+
+    this.client.read(__filename, 0, len, function (err, reply) {
+        t.ifError(err);
+        t.ok(reply);
+        t.equal(reply.status, 0);
+        t.ok(reply.file_attributes);
+        t.notOk(reply.eof);
+        t.ok(reply.data);
+        t.equal(reply.data.toString('utf8'), str);
         t.end();
     });
 });
