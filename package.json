@@ -26,7 +26,8 @@
     "devDependencies": {
         "bunyan": "0.22.0",
         "libuuid": "0.1.2",
-        "tap": "0.4.4",
+        "manta": "git://github.com/joyent/node-manta.git#master",
+        "nodeunit": "0.8.1",
         "statvfs": "2.1.0",
         "vasync": "1.4.0"
     },
