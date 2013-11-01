@@ -26,13 +26,13 @@
     "devDependencies": {
         "bunyan": "0.22.0",
         "libuuid": "0.1.2",
-        "manta": "git://github.com/joyent/node-manta.git#master",
         "nodeunit": "0.8.1",
+        "nodeunit-plus": "0.0.1",
         "statvfs": "2.1.0",
         "vasync": "1.4.0"
     },
     "scripts": {
-        "test": "tap test/*.test.js"
+        "test": "nodeunit test/*.test.js"
     },
     "engines": {
         "node" : ">=0.10.18 <0.12"

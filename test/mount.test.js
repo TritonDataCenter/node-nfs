@@ -8,10 +8,9 @@ var util = require('util');
 
 var assert = require('assert-plus');
 var libuuid = require('libuuid');
+require('nodeunit-plus');
 
 var nfs = require('../lib');
-
-require('./helper');
 
 
 
@@ -84,7 +83,7 @@ after(function (cb) {
     var self = this;
     this.client.close(function () {
         self.server.close(cb);
-    })
+    });
 });
 
 
@@ -123,7 +122,6 @@ test('mount', function (t) {
         });
     });
 });
-
 
 
 test('unmount', function (t) {
