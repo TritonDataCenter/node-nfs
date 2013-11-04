@@ -32,7 +32,7 @@
         "vasync": "1.4.0"
     },
     "scripts": {
-        "test": "nodeunit test/*.test.js"
+        "test": "for f in $(ls test/*.test.js) ; do nodeunit $f ; done"
     },
     "engines": {
         "node" : ">=0.10.18 <0.12"

@@ -189,6 +189,36 @@ before(function (cb) {
         });
     });
 
+    server.fsinfo(function (req, res, next) {
+        fs.lstat(req.object, function (err, stats) {
+            if (err) {
+                nfs.handle_error(err, req, res, next);
+                return;
+            }
+
+            res.setAttributes(stats);
+            // Stolen from: http://goo.gl/fBLulQ (IBM)
+            res.wtmax = res.rtmax = 65536;
+            res.wtpref = res.rtpref = 32768;
+            res.wtmult = res.rtmult = 4096;
+            res.dtpref = 8192;
+
+            // Our made up vals
+            res.maxfilesize = 12345678;
+            res.time_delta = {
+                seconds: 0,
+                nseconds: 1000000
+            }; // milliseconds
+
+            // TODO: this isn't right, for some reason...
+            res.properties =
+                nfs.FSF3_LINK     |
+                nfs.FSF3_SYMLINK;
+            res.send();
+            next();
+        });
+    });
+
     server.listen(function () {
         var addr = server.address();
 
@@ -313,6 +343,31 @@ test('fsstat', function (t) {
         t.ok(reply.ffiles);
         t.ok(reply.afiles);
         t.ok(reply.invarsec !== undefined);
+        t.end();
+    });
+});
+
+
+
+test('fsinfo', function (t) {
+    this.client.fsinfo('/tmp', function (err, reply) {
+        t.ifError(err);
+        t.ok(reply);
+        t.equal(reply.status, 0);
+        t.equal(reply.wtmax, 65536);
+        t.equal(reply.rtmax, 65536);
+        t.equal(reply.wtpref, 32768);
+        t.equal(reply.rtpref, 32768);
+        t.equal(reply.wtmult, 4096);
+        t.equal(reply.rtmult, 4096);
+        t.equal(reply.dtpref, 8192);
+        t.equal(reply.maxfilesize, 12345678);
+        t.ok(reply.time_delta);
+        t.equal(reply.time_delta.seconds, 0);
+        t.equal(reply.time_delta.nseconds, 1000000);
+
+        t.equal(reply.properties, nfs.FSF3_LINK | nfs.FSF3_SYMLINK);
+
         t.end();
     });
 });
