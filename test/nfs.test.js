@@ -129,6 +129,36 @@ before(function (cb) {
         });
     });
 
+    server.readdir(function (req, res, next) {
+        fs.readdir(req.object, function (dir_err, files) {
+            if (dir_err) {
+                nfs.handle_error(dir_err, req, res, next);
+                return;
+            }
+
+            var i = 1;
+            files.forEach(function (f) {
+                res.addEntry({
+                    fileid: i++,
+                    name: f,
+                    cookie: 0
+                });
+            });
+            res.eof = true;
+
+            fs.lstat(req.object, function (err, stats) {
+                if (err) {
+                    nfs.handl_error(err, req, res, next);
+                    return;
+                }
+
+                res.setAttributes(stats);
+                res.send();
+                next();
+            });
+        });
+    });
+
     server.listen(function () {
         var addr = server.address();
 
@@ -211,6 +241,29 @@ test('read', function (t) {
         t.notOk(reply.eof);
         t.ok(reply.data);
         t.equal(reply.data.toString('utf8'), str);
+        t.end();
+    });
+});
+
+
+test('readdir', function (t) {
+    var opts = {
+        dir: __dirname,
+        cookie: 0,
+        count: 65535
+    };
+    this.client.readdir(opts, function (err, reply) {
+        t.ifError(err);
+        t.ok(reply);
+        t.equal(reply.status, 0);
+        t.ok(reply.dir_attributes);
+        t.ok(Array.isArray(reply.reply));
+        (reply.reply || []).forEach(function (r) {
+            t.ok(r.fileid);
+            t.ok(r.name);
+            t.ok(r.cookie !== undefined);
+        });
+        t.ok(reply.eof);
         t.end();
     });
 });
