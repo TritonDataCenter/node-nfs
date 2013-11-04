@@ -10,6 +10,7 @@ var util = require('util');
 
 var assert = require('assert-plus');
 var libuuid = require('libuuid');
+var statvfs = require('statvfs');
 require('nodeunit-plus');
 
 var nfs = require('../lib');
@@ -159,6 +160,35 @@ before(function (cb) {
         });
     });
 
+    server.fsstat(function (req, res, next) {
+        statvfs(req.object, function (err, stats) {
+            if (err) {
+                nfs.handl_error(err, req, res, next);
+                return;
+            }
+
+            res.tbytes = stats.blocks * stats.bsize;
+            res.fbytes = stats.bfree * stats.bsize;
+            res.abytes = stats.bavail * stats.bsize;
+            res.tfiles = stats.files;
+            res.ffiles = stats.ffree;
+            res.afiles = stats.favail;
+            res.invarsec = 0;
+
+
+            fs.lstat(req.object, function (s_err, f_stats) {
+                if (s_err) {
+                    nfs.handl_error(s_err, req, res, next);
+                    return;
+                }
+
+                res.setAttributes(f_stats);
+                res.send();
+                next();
+            });
+        });
+    });
+
     server.listen(function () {
         var addr = server.address();
 
@@ -264,6 +294,25 @@ test('readdir', function (t) {
             t.ok(r.cookie !== undefined);
         });
         t.ok(reply.eof);
+        t.end();
+    });
+});
+
+
+
+test('fsstat', function (t) {
+    this.client.fsstat('/tmp', function (err, reply) {
+        t.ifError(err);
+        t.ok(reply);
+        t.equal(reply.status, 0);
+        t.ok(reply.obj_attributes);
+        t.ok(reply.tbytes);
+        t.ok(reply.fbytes);
+        t.ok(reply.abytes);
+        t.ok(reply.tfiles);
+        t.ok(reply.ffiles);
+        t.ok(reply.afiles);
+        t.ok(reply.invarsec !== undefined);
         t.end();
     });
 });
