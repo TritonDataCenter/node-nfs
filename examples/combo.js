@@ -125,6 +125,7 @@ function set_attr(req, res, next) {
     } catch (e) {
         req.log.warn(e, 'set_attr: lstat failed');
         res.error(nfs.NFS3ERR_STALE);
+        res.set_wcc_data();
         next(false);
         return;
     }
@@ -322,6 +323,84 @@ function lookup(req, res, next) {
     });
 }
 
+function mkdir(req, res, next) {
+    if (req.where.name === "." || req.where.name === "..") {
+        req.log.warn(e, 'mkdir: dot or dotdot not allowed');
+        res.error(nfs.NFS3ERR_EXIST);
+        res.set_dir_wcc();
+        next(false);
+        return;
+    }
+
+    var dir = FILE_HANDLES[req.where.dir];
+
+    fs.stat(dir, function (err, stats) {
+        if (err) {
+            nfs.handle_error(err, req, res, next);
+        } else if (!stats.isDirectory()) {
+            res.error(nfs.NFS3ERR_NOTDIR);
+            res.set_dir_wcc();
+            next(false);
+        } else {
+
+            var nm = dir + '/' + req.where.name;
+            var mode;
+            if (req.attributes.mode !== null)
+                mode = req.attributes.mode;
+            else
+                mode = 0755;
+
+            fs.mkdir(nm, mode, function (err2) {
+                if (err2) {
+                    // ENOENT is not a valid return from this the procedure.
+                    // If the dir disappeared, return as from the check above.
+                    if (err2.code === 'ENOENT')
+                        err2.code = 'ENOTDIR';
+                    nfs.handle_error(err2, req, res, next);
+                } else {
+                    var uuid = libuuid.create();
+                    FILE_HANDLES[uuid] = nm;
+
+                    res.obj = uuid;
+
+                    // If no uid/gid, use the parent's
+
+                    var uid;
+                    var gid;
+
+                    if (req.attributes.uid !== null)
+                        uid = req.attributes.uid;
+                    else
+                        uid = stats.uid;
+   
+                    if (req.attributes.gid !== null)
+                        gid = req.attributes.gid;
+                    else
+                        gid = stats.gid;
+
+                    try {
+                        fs.chownSync(nm, uid, gid);
+                    } catch (e) {
+                        req.log.warn(e, 'mkdir: chown failed');
+                    }
+
+                    var stats2;
+                    try {
+                        stats2 = fs.lstatSync(nm);
+                        res.setObjAttributes(stats2);
+                    } catch (e) {
+                        req.log.warn(e, 'mkdir: lstat failed');
+                    }
+
+                    res.set_dir_wcc();
+                    res.send();
+                    next();
+                }
+            });
+        }
+    });
+}
+
 
 function readdir(req, res, next) {
     var dir = FILE_HANDLES[req.dir];
@@ -437,6 +516,7 @@ function read(req, res, next) {
     nfsd.getattr(authorize, check_fh_table, get_attr);
     nfsd.setattr(authorize, check_fh_table, set_attr);
     nfsd.lookup(authorize, check_fh_table, lookup);
+    nfsd.mkdir(authorize, check_fh_table, mkdir);
     nfsd.access(authorize, check_fh_table, fs_set_attrs, access);
     nfsd.read(authorize, check_fh_table, fs_set_attrs, read);
     nfsd.readdir(authorize, check_fh_table, fs_set_attrs, readdir);
