@@ -402,6 +402,49 @@ function mkdir(req, res, next) {
 }
 
 
+function rmdir(req, res, next) {
+    if (req._object.name === ".") {
+        req.log.warn(e, 'rmdir: dot not allowed');
+        res.error(nfs.NFS3ERR_INVAL);
+        res.set_dir_wcc();
+        next(false);
+        return;
+    }
+
+    if (req._object.name === "..") {
+        req.log.warn(e, 'rmdir: dotdot not allowed');
+        res.error(nfs.NFS3ERR_EXIST);
+        res.set_dir_wcc();
+        next(false);
+        return;
+    }
+
+    var dir = FILE_HANDLES[req._object.dir];
+    var nm = dir + '/' + req._object.name;
+
+    fs.lstat(nm, function (err, stats) {
+        if (err) {
+            nfs.handle_error(err, req, res, next);
+        } else if (!stats.isDirectory()) {
+            res.error(nfs.NFS3ERR_NOTDIR);
+            res.set_dir_wcc();
+            next(false);
+        } else {
+
+            fs.rmdir(nm, function (err2) {
+                if (err2) {
+                    nfs.handle_error(err2, req, res, next);
+                } else {
+                    res.set_dir_wcc();
+                    res.send();
+                    next();
+                }
+            });
+        }
+    });
+}
+
+
 function readdir(req, res, next) {
     var dir = FILE_HANDLES[req.dir];
     fs.readdir(dir, function (err, files) {
@@ -517,6 +560,7 @@ function read(req, res, next) {
     nfsd.setattr(authorize, check_fh_table, set_attr);
     nfsd.lookup(authorize, check_fh_table, lookup);
     nfsd.mkdir(authorize, check_fh_table, mkdir);
+    nfsd.rmdir(authorize, check_fh_table, rmdir);
     nfsd.access(authorize, check_fh_table, fs_set_attrs, access);
     nfsd.read(authorize, check_fh_table, fs_set_attrs, read);
     nfsd.readdir(authorize, check_fh_table, fs_set_attrs, readdir);
