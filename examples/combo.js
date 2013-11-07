@@ -15,7 +15,7 @@ var rpc = require('oncrpc');
 var statvfs = require('statvfs');
 var vasync = require('vasync')
 
-
+var sattr3 = require('../lib/nfs/sattr3');
 
 ///--- Globals
 
@@ -106,6 +106,103 @@ function get_attr(req, res, next) {
             next();
         }
     });
+}
+
+
+function set_attr(req, res, next) {
+    var f = FILE_HANDLES[req.object]
+
+    // To support the weak cache consistency data return object we must be
+    // able to atomically stat the file before we set the attributes, make
+    // the changes, then stat the file again once we're done. For now we'll
+    // simply return that there is no wcc_data (which is allowed by the spec).
+
+    // stat first so we can pass back params that were not provided (e.g.
+    // if only have uid/gid, need the other one).
+    var stats;
+    try {
+        stats = fs.lstatSync(f);
+    } catch (e) {
+        req.log.warn(e, 'set_attr: lstat failed');
+        res.error(nfs.NFS3ERR_STALE);
+        next(false);
+        return;
+    }
+
+    // XXX translate errors into better return code below
+
+    if (req.new_attributes.mode !== null) {
+        try {
+            fs.chmodSync(f, req.new_attributes.mode);
+        } catch (e) {
+            req.log.warn(e, 'set_attr: chmod failed');
+            res.error(nfs.NFS3ERR_STALE);
+            res.set_wcc_data();
+            next(false);
+            return;
+        }
+    }
+
+    var uid;
+    var gid;
+
+    if (req.new_attributes.uid !== null)
+        uid = req.new_attributes.uid;
+    else
+        uid = stats.uid;
+   
+    if (req.new_attributes.gid !== null)
+        gid = req.new_attributes.gid;
+    else
+        gid = stats.gid;
+
+    if (req.new_attributes.uid !== null || req.new_attributes.gid !== null) {
+        try {
+            fs.chownSync(f, uid, gid);
+        } catch (e) {
+            req.log.warn(e, 'set_attr: chown failed');
+            res.error(nfs.NFS3ERR_STALE);
+            res.set_wcc_data();
+            next(false);
+            return;
+        }
+    }
+
+    var atime;
+    var mtime;
+
+    if (req.new_attributes.how_a_time === sattr3.time_how.SET_TO_CLIENT_TIME) {
+        msecs = (req.new_attributes.atime.seconds * 1000) +
+            (req.new_attributes.atime.nseconds / 1000000);
+        atime = new Date(msecs);
+    } else {
+        atime = stats.atime;
+    }
+   
+    if (req.new_attributes.how_m_time === sattr3.time_how.SET_TO_CLIENT_TIME) {
+        msecs = (req.new_attributes.mtime.seconds * 1000) +
+            (req.new_attributes.mtime.nseconds / 1000000);
+        mtime = new Date(msecs);
+    } else {
+        mtime = stats.mtime;
+    }
+
+    if (req.new_attributes.how_a_time === sattr3.time_how.SET_TO_CLIENT_TIME ||
+        req.new_attributes.how_m_time === sattr3.time_how.SET_TO_CLIENT_TIME) {
+        try {
+            fs.utimesSync(f, atime, mtime);
+        } catch (e) {
+            req.log.warn(e, 'set_attr: utimes failed');
+            res.error(nfs.NFS3ERR_STALE);
+            res.set_wcc_data();
+            next(false);
+            return;
+        }
+    }
+
+    res.set_wcc_data();
+    res.send();
+    next();
 }
 
 
@@ -211,8 +308,6 @@ function lookup(req, res, next) {
                 if (err2) {
                     nfs.handle_error(err2, req, res, next);
                 } else {
-
-
                     var uuid = libuuid.create();
                     FILE_HANDLES[uuid] = f;
 
@@ -339,14 +434,15 @@ function read(req, res, next) {
     mountd.mnt(authorize, check_dirpath, mount);
     mountd.umnt(authorize, check_dirpath, umount);
 
-    nfsd.access(authorize, check_fh_table, fs_set_attrs, access);
     nfsd.getattr(authorize, check_fh_table, get_attr);
-    nfsd.fsinfo(authorize, check_fh_table, fs_set_attrs, fs_info);
-    nfsd.fsstat(authorize, check_fh_table, fs_set_attrs, fs_stat);
-    nfsd.pathconf(authorize, check_fh_table, fs_set_attrs, path_conf);
+    nfsd.setattr(authorize, check_fh_table, set_attr);
     nfsd.lookup(authorize, check_fh_table, lookup);
-    nfsd.readdir(authorize, check_fh_table, fs_set_attrs, readdir);
+    nfsd.access(authorize, check_fh_table, fs_set_attrs, access);
     nfsd.read(authorize, check_fh_table, fs_set_attrs, read);
+    nfsd.readdir(authorize, check_fh_table, fs_set_attrs, readdir);
+    nfsd.fsstat(authorize, check_fh_table, fs_set_attrs, fs_stat);
+    nfsd.fsinfo(authorize, check_fh_table, fs_set_attrs, fs_info);
+    nfsd.pathconf(authorize, check_fh_table, fs_set_attrs, path_conf);
 
     var log = logger('audit');
     function after(name, req, res, err) {
