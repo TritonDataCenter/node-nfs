@@ -336,6 +336,7 @@ function mkdir(req, res, next) {
 
     fs.stat(dir, function (err, stats) {
         if (err) {
+            res.set_dir_wcc();
             nfs.handle_error(err, req, res, next);
         } else if (!stats.isDirectory()) {
             res.error(nfs.NFS3ERR_NOTDIR);
@@ -424,6 +425,7 @@ function rmdir(req, res, next) {
 
     fs.lstat(nm, function (err, stats) {
         if (err) {
+            res.set_dir_wcc();
             nfs.handle_error(err, req, res, next);
         } else if (!stats.isDirectory()) {
             res.error(nfs.NFS3ERR_NOTDIR);
@@ -495,6 +497,7 @@ function remove(req, res, next) {
 
     fs.lstat(nm, function (err, stats) {
         if (err) {
+            res.set_dir_wcc();
             nfs.handle_error(err, req, res, next);
         } else if (stats.isDirectory()) {
             res.error(nfs.NFS3ERR_ACCES);
@@ -511,6 +514,28 @@ function remove(req, res, next) {
                     next();
                 }
             });
+        }
+    });
+}
+
+
+function rename(req, res, next) {
+    var fdir = FILE_HANDLES[req.from.dir];
+    var fnm = fdir + '/' + req.from.name;
+
+    var tdir = FILE_HANDLES[req.to.dir];
+    var tnm = fdir + '/' + req.to.name;
+
+    fs.rename(fnm, tnm, function (err2) {
+        if (err2) {
+            res.set_fromdir_wcc();
+            res.set_todir_wcc();
+            nfs.handle_error(err2, req, res, next);
+        } else {
+            res.set_fromdir_wcc();
+            res.set_todir_wcc();
+            res.send();
+            next();
         }
     });
 }
@@ -589,6 +614,7 @@ function read(req, res, next) {
     nfsd.mkdir(authorize, check_fh_table, mkdir);
     nfsd.remove(authorize, check_fh_table, remove);
     nfsd.rmdir(authorize, check_fh_table, rmdir);
+    nfsd.rename(authorize, check_fh_table, rename);
     nfsd.access(authorize, check_fh_table, fs_set_attrs, access);
     nfsd.read(authorize, check_fh_table, fs_set_attrs, read);
     nfsd.readdir(authorize, check_fh_table, fs_set_attrs, readdir);
