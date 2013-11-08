@@ -16,6 +16,7 @@ var statvfs = require('statvfs');
 var vasync = require('vasync')
 
 var sattr3 = require('../lib/nfs/sattr3');
+var create_call = require('../lib/nfs/create_call');
 
 ///--- Globals
 
@@ -323,6 +324,86 @@ function lookup(req, res, next) {
     });
 }
 
+
+function create(req, res, next) {
+
+    // fail exclusive create
+    if (req.how === create_call.create_how.EXCLUSIVE) {
+        req.log.warn(e, 'create: exclusive allowed');
+        res.error(nfs.NFS3ERR_NOTSUPP);
+        res.set_dir_wcc();
+        next(false);
+        return;
+    }
+
+    var dir = FILE_HANDLES[req.where.dir];
+    var nm = dir + '/' + req.where.name;
+
+    var flags;
+
+    if (req.how === create_call.create_how.UNCHECKED) {
+        flags = 'w';
+    } else if (req.how === create_call.create_how.GUARDED) {
+        flags = 'wx';
+    }
+
+    var mode = 0644;
+    if (req.obj_attributes.mode !== null)
+        mode = req.obj_attributes.mode;
+
+    fs.open(nm, flags, mode, function (err, fd) {
+        if (err) {
+            res.set_dir_wcc();
+            nfs.handle_error(err, req, res, next);
+        } else {
+            fs.closeSync(fd);
+
+            var uuid = libuuid.create();
+            FILE_HANDLES[uuid] = nm;
+
+            res.obj = uuid;
+
+            var uid;
+            var gid;
+
+            if (req.obj_attributes.uid === null ||
+                req.obj_attributes.gid === null) {
+                try {
+                    var stats = fs.lstatSync(dir);
+                    uid = stats.uid;
+                    gid = stats.gid;
+                } catch (e) {
+                    req.log.warn(e, 'create: lstat failed');
+                }
+            }
+
+            if (req.obj_attributes.uid !== null)
+                uid = req.obj_attributes.uid;
+   
+            if (req.obj_attributes.gid !== null)
+                gid = req.obj_attributes.gid;
+
+            try {
+                fs.chownSync(nm, uid, gid);
+            } catch (e) {
+                req.log.warn(e, 'create: chown failed');
+            }
+
+            try {
+                var stats = fs.lstatSync(nm);
+                res.setObjAttributes(stats);
+            } catch (e) {
+                req.log.warn(e, 'create: lstat failed');
+            }
+
+            res.set_dir_wcc();
+            res.send();
+            next();
+        }
+    });
+}
+
+
 function mkdir(req, res, next) {
     if (req.where.name === "." || req.where.name === "..") {
         req.log.warn(e, 'mkdir: dot or dotdot not allowed');
@@ -357,6 +438,7 @@ function mkdir(req, res, next) {
                     // If the dir disappeared, return as from the check above.
                     if (err2.code === 'ENOENT')
                         err2.code = 'ENOTDIR';
+                    res.set_dir_wcc();
                     nfs.handle_error(err2, req, res, next);
                 } else {
                     var uuid = libuuid.create();
@@ -615,6 +697,7 @@ function read(req, res, next) {
     nfsd.remove(authorize, check_fh_table, remove);
     nfsd.rmdir(authorize, check_fh_table, rmdir);
     nfsd.rename(authorize, check_fh_table, rename);
+    nfsd.create(authorize, check_fh_table, create);
     nfsd.access(authorize, check_fh_table, fs_set_attrs, access);
     nfsd.read(authorize, check_fh_table, fs_set_attrs, read);
     nfsd.readdir(authorize, check_fh_table, fs_set_attrs, readdir);
