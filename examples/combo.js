@@ -17,6 +17,7 @@ var vasync = require('vasync')
 
 var sattr3 = require('../lib/nfs/sattr3');
 var create_call = require('../lib/nfs/create_call');
+var write_call = require('../lib/nfs/write_call');
 
 ///--- Globals
 
@@ -634,10 +635,21 @@ function read(req, res, next) {
         res.data = new Buffer(req.count);
         fs.read(fd, res.data, 0, req.count, req.offset, function (err, n) {
             if (err) {
+                fs.closeSync(fd);
                 nfs.handle_error(err, req, res, next);
             } else {
+                // XXX kludge to set eof
+                var eof = false;
+                try {
+                    var stats = fs.fstatSync(fd);
+                    if (stats.size <= (req.offset + req.count))
+                        eof = true;
+                } catch (e) {
+                }
+
+                fs.closeSync(fd);
                 res.count = n;
-                res.eof = true; // TODO
+                res.eof = eof;
                 res.send();
                 next();
             }
@@ -645,6 +657,45 @@ function read(req, res, next) {
     });
 }
 
+
+function write(req, res, next) {
+    var f = FILE_HANDLES[req.file];
+
+    fs.open(f, 'r+', function (open_err, fd) {
+        if (open_err) {
+            res.set_file_wcc();
+            nfs.handle_error(open_err, req, res, next);
+            return;
+        }
+
+        fs.write(fd, req.data, 0, req.count, req.offset, function (err, n, b) {
+            if (err) {
+                fs.closeSync(fd);
+                res.set_file_wcc();
+                nfs.handle_error(err, req, res, next);
+            } else {
+                // Always sync to avoid double writes, see comment below for
+                // res.comitted.
+                fs.fsync(fd, function(err2) {
+                    // XXX ignore errors on the sync
+
+                    fs.closeSync(fd);
+                    res.set_file_wcc();
+                    res.count = n;
+
+                    // XXX Would like res.committed = req.stable but at least
+                    // on MacOS it sends the write with stable == UNSTABLE, but
+                    // if we return committed == UNSTABLE, it will resend the
+                    // write with stable == FILE_SYNC.
+                    res.committed = write_call.stable_how.FILE_SYNC;
+
+                    res.send();
+                    next();
+                });
+            }
+        });
+    });
+}
 
 
 ///--- Mainline
@@ -700,6 +751,7 @@ function read(req, res, next) {
     nfsd.create(authorize, check_fh_table, create);
     nfsd.access(authorize, check_fh_table, fs_set_attrs, access);
     nfsd.read(authorize, check_fh_table, fs_set_attrs, read);
+    nfsd.write(authorize, check_fh_table, write);
     nfsd.readdir(authorize, check_fh_table, fs_set_attrs, readdir);
     nfsd.fsstat(authorize, check_fh_table, fs_set_attrs, fs_stat);
     nfsd.fsinfo(authorize, check_fh_table, fs_set_attrs, fs_info);
