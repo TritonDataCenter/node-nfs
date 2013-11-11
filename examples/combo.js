@@ -574,6 +574,31 @@ function readdir(req, res, next) {
 }
 
 
+function link(req, res, next) {
+    var f = FILE_HANDLES[req.file];
+    var dir = FILE_HANDLES[req.link.dir];
+    var nm = dir + '/' + req.link.name;
+
+    fs.link(f, nm, function (err) {
+        if (err) {
+            res.set_linkdir_wcc();
+            nfs.handle_error(err, req, res, next);
+        } else {
+            try {
+                var stats = fs.statSync(nm);
+                res.setFileAttributes(stats);
+            } catch (e) {
+                req.log.warn(e, 'link: lstat failed');
+            }
+
+            res.set_linkdir_wcc();
+            res.send();
+            next();
+        }
+    });
+}
+
+
 function remove(req, res, next) {
     var dir = FILE_HANDLES[req._object.dir];
     var nm = dir + '/' + req._object.name;
@@ -753,6 +778,7 @@ function write(req, res, next) {
     nfsd.read(authorize, check_fh_table, fs_set_attrs, read);
     nfsd.write(authorize, check_fh_table, write);
     nfsd.readdir(authorize, check_fh_table, fs_set_attrs, readdir);
+    nfsd.link(authorize, check_fh_table, link);
     nfsd.fsstat(authorize, check_fh_table, fs_set_attrs, fs_stat);
     nfsd.fsinfo(authorize, check_fh_table, fs_set_attrs, fs_info);
     nfsd.pathconf(authorize, check_fh_table, fs_set_attrs, path_conf);
