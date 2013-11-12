@@ -599,6 +599,59 @@ function link(req, res, next) {
 }
 
 
+function symlink(req, res, next) {
+    var dir = FILE_HANDLES[req.where.dir];
+    var slink = dir + '/' + req.where.name;
+
+    fs.symlink(req.symlink_data, slink, function (err) {
+        if (err) {
+            res.set_dir_wcc();
+            nfs.handle_error(err, req, res, next);
+        } else {
+            var uuid = libuuid.create();
+            FILE_HANDLES[uuid] = slink;
+
+            res.obj = uuid;
+
+            // If no uid/gid, use the parent's
+            var uid = 0;
+            var gid = 0;
+
+            try {
+                var stats = fs.lstatSync(dir);
+                uid = stats.uid;
+                gid = stats.gid;
+            } catch (e) {
+                req.log.warn(e, 'symlink: lstat failed');
+            }
+
+            if (req.symlink_attributes.uid !== null)
+                uid = req.symlink_attributes.uid;
+   
+            if (req.symlink_attributes.gid !== null)
+                gid = req.symlink_attributes.gid;
+
+            try {
+                fs.lchownSync(slink, uid, gid);
+            } catch (e) {
+                req.log.warn(e, 'symlink: chown failed');
+            }
+
+            try {
+                var stats = fs.lstatSync(slink);
+                res.setObjAttributes(stats);
+            } catch (e) {
+                req.log.warn(e, 'symlink: lstat failed');
+            }
+
+            res.set_dir_wcc();
+            res.send();
+            next();
+        }
+    });
+}
+
+
 function remove(req, res, next) {
     var dir = FILE_HANDLES[req._object.dir];
     var nm = dir + '/' + req._object.name;
@@ -779,6 +832,7 @@ function write(req, res, next) {
     nfsd.write(authorize, check_fh_table, write);
     nfsd.readdir(authorize, check_fh_table, fs_set_attrs, readdir);
     nfsd.link(authorize, check_fh_table, link);
+    nfsd.symlink(authorize, check_fh_table, symlink);
     nfsd.fsstat(authorize, check_fh_table, fs_set_attrs, fs_stat);
     nfsd.fsinfo(authorize, check_fh_table, fs_set_attrs, fs_info);
     nfsd.pathconf(authorize, check_fh_table, fs_set_attrs, path_conf);
