@@ -599,6 +599,29 @@ function link(req, res, next) {
 }
 
 
+function readlink(req, res, next) {
+    var f = FILE_HANDLES[req.symlink];
+
+    fs.readlink(f, function (err, linkstr) {
+        if (err) {
+            nfs.handle_error(err, req, res, next);
+        } else {
+            res.data = linkstr;
+
+            try {
+                var stats = fs.lstatSync(f);
+                res.setAttributes(stats);
+            } catch (e) {
+                req.log.warn(e, 'link: lstat failed');
+            }
+
+            res.send();
+            next();
+        }
+    });
+}
+
+
 function symlink(req, res, next) {
     var dir = FILE_HANDLES[req.where.dir];
     var slink = dir + '/' + req.where.name;
@@ -832,6 +855,7 @@ function write(req, res, next) {
     nfsd.write(authorize, check_fh_table, write);
     nfsd.readdir(authorize, check_fh_table, fs_set_attrs, readdir);
     nfsd.link(authorize, check_fh_table, link);
+    nfsd.readlink(authorize, check_fh_table, readlink);
     nfsd.symlink(authorize, check_fh_table, symlink);
     nfsd.fsstat(authorize, check_fh_table, fs_set_attrs, fs_stat);
     nfsd.fsinfo(authorize, check_fh_table, fs_set_attrs, fs_info);
