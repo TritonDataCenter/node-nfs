@@ -16,6 +16,7 @@ var statvfs = require('statvfs');
 var vasync = require('vasync')
 
 var sattr3 = require('../lib/nfs/sattr3');
+var fattr3 = require('../lib/nfs/fattr3');
 var create_call = require('../lib/nfs/create_call');
 var write_call = require('../lib/nfs/write_call');
 
@@ -338,7 +339,7 @@ function create(req, res, next) {
     }
 
     var dir = FILE_HANDLES[req.where.dir];
-    var nm = dir + '/' + req.where.name;
+    var nm = path.join(dir, req.where.name);
 
     var flags;
 
@@ -426,7 +427,7 @@ function mkdir(req, res, next) {
             next(false);
         } else {
 
-            var nm = dir + '/' + req.where.name;
+            var nm = path.join(dir, req.where.name);
             var mode;
             if (req.attributes.mode !== null)
                 mode = req.attributes.mode;
@@ -504,7 +505,7 @@ function rmdir(req, res, next) {
     }
 
     var dir = FILE_HANDLES[req._object.dir];
-    var nm = dir + '/' + req._object.name;
+    var nm = path.join(dir, req._object.name);
 
     fs.lstat(nm, function (err, stats) {
         if (err) {
@@ -556,7 +557,7 @@ function readdir(req, res, next) {
 
                 var p = path.join(dir, f);
 
-                fs.stat(p, function (err2, stat) {
+                fs.lstat(p, function (err2, stat) {
                     barrier.done('stat::' + f);
                     if (err2) {
                         error = error || err2;
@@ -574,10 +575,71 @@ function readdir(req, res, next) {
 }
 
 
+function readdirplus(req, res, next) {
+    var dir = FILE_HANDLES[req.dir];
+    fs.readdir(dir, function (err, files) {
+        if (err) {
+            nfs.handle_error(err, req, res, next);
+        } else {
+            res.eof = (files.length < req.count);
+            res.setDirAttributes(req._stats);
+
+            var barrier = vasync.barrier();
+            var error = null;
+
+            barrier.once('drain', function () {
+                if (error) {
+                    nfs.handle_error(error, req, res, next);
+                } else {
+                    res.send();
+                    next();
+                }
+            });
+
+            files.forEach(function (f) {
+                barrier.start('stat::' + f);
+
+                var p = path.join(dir, f);
+
+                fs.lstat(p, function (err2, stat) {
+                    barrier.done('stat::' + f);
+                    if (err2) {
+                        error = error || err2;
+                    } else {
+
+                        var handle = null;
+                        for (var uuid in FILE_HANDLES) {
+                            if (FILE_HANDLES[uuid] === p) {
+                                handle = uuid;
+                                break;
+                            }
+                        }
+
+                        if (! handle) {
+                            var uuid = libuuid.create();
+                            FILE_HANDLES[uuid] = p;
+                            handle = uuid;
+                        }
+
+                        res.addEntry({
+                            fileid: stat.ino,
+                            name: f,
+                            cookie: stat.mtime.getTime(),
+                            name_attributes: fattr3.create(stat),
+                            name_handle: handle
+                        });
+                    }
+                });
+            });
+        }
+    });
+}
+
+
 function link(req, res, next) {
     var f = FILE_HANDLES[req.file];
     var dir = FILE_HANDLES[req.link.dir];
-    var nm = dir + '/' + req.link.name;
+    var nm = path.join(dir, req.link.name);
 
     fs.link(f, nm, function (err) {
         if (err) {
@@ -624,7 +686,7 @@ function readlink(req, res, next) {
 
 function symlink(req, res, next) {
     var dir = FILE_HANDLES[req.where.dir];
-    var slink = dir + '/' + req.where.name;
+    var slink = path.join(dir, req.where.name);
 
     fs.symlink(req.symlink_data, slink, function (err) {
         if (err) {
@@ -677,7 +739,7 @@ function symlink(req, res, next) {
 
 function remove(req, res, next) {
     var dir = FILE_HANDLES[req._object.dir];
-    var nm = dir + '/' + req._object.name;
+    var nm = path.join(dir, req._object.name);
 
     fs.lstat(nm, function (err, stats) {
         if (err) {
@@ -705,10 +767,10 @@ function remove(req, res, next) {
 
 function rename(req, res, next) {
     var fdir = FILE_HANDLES[req.from.dir];
-    var fnm = fdir + '/' + req.from.name;
+    var fnm = path.join(fdir, req.from.name);
 
     var tdir = FILE_HANDLES[req.to.dir];
-    var tnm = fdir + '/' + req.to.name;
+    var tnm = path.join(fdir, req.to.name);
 
     fs.rename(fnm, tnm, function (err2) {
         if (err2) {
@@ -854,6 +916,7 @@ function write(req, res, next) {
     nfsd.read(authorize, check_fh_table, fs_set_attrs, read);
     nfsd.write(authorize, check_fh_table, write);
     nfsd.readdir(authorize, check_fh_table, fs_set_attrs, readdir);
+    nfsd.readdirplus(authorize, check_fh_table, fs_set_attrs, readdirplus);
     nfsd.link(authorize, check_fh_table, link);
     nfsd.readlink(authorize, check_fh_table, readlink);
     nfsd.symlink(authorize, check_fh_table, symlink);
