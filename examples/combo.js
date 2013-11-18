@@ -406,6 +406,13 @@ function create(req, res, next) {
 }
 
 
+function mknod(req, res, next) {
+    res.error(nfs.NFS3ERR_NOTSUPP);
+    res.set_dir_wcc();
+    next(false);
+}
+
+
 function mkdir(req, res, next) {
     if (req.where.name === "." || req.where.name === "..") {
         req.log.warn(e, 'mkdir: dot or dotdot not allowed');
@@ -931,6 +938,7 @@ function commit(req, res, next) {
     nfsd.setattr(authorize, check_fh_table, set_attr);
     nfsd.lookup(authorize, check_fh_table, lookup);
     nfsd.mkdir(authorize, check_fh_table, mkdir);
+    nfsd.mknod(authorize, check_fh_table, mknod);
     nfsd.remove(authorize, check_fh_table, remove);
     nfsd.rmdir(authorize, check_fh_table, rmdir);
     nfsd.rename(authorize, check_fh_table, rename);
