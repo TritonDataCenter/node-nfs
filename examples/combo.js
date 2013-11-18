@@ -861,6 +861,29 @@ function write(req, res, next) {
 }
 
 
+function commit(req, res, next) {
+    var f = FILE_HANDLES[req.file];
+
+    fs.open(f, 'r+', function (open_err, fd) {
+        if (open_err) {
+            res.set_file_wcc();
+            nfs.handle_error(open_err, req, res, next);
+            return;
+        }
+
+        fs.fsync(fd, function(err) {
+            // XXX ignore errors on the sync
+
+            fs.closeSync(fd);
+            res.set_file_wcc();
+
+            res.send();
+            next();
+        });
+    });
+}
+
+
 ///--- Mainline
 
 (function main() {
@@ -923,6 +946,7 @@ function write(req, res, next) {
     nfsd.fsstat(authorize, check_fh_table, fs_set_attrs, fs_stat);
     nfsd.fsinfo(authorize, check_fh_table, fs_set_attrs, fs_info);
     nfsd.pathconf(authorize, check_fh_table, fs_set_attrs, path_conf);
+    nfsd.commit(authorize, check_fh_table, commit);
 
     var log = logger('audit');
     function after(name, req, res, err) {
