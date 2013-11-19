@@ -14,7 +14,11 @@ var statvfs = require('statvfs');
 require('nodeunit-plus');
 
 var nfs = require('../lib');
-
+var create_call = require('../lib/nfs/create_call');
+var write_call = require('../lib/nfs/write_call');
+var tst_fname = 'nfs_testfile.tst';
+var tst_fpath = '/tmp/nfs_testfile.tst';
+var tst_data = 'The quick brown fox jumped over the lazy dog.';
 
 
 ///--- Setup/Teardown
@@ -34,6 +38,49 @@ before(function (cb) {
     server.on('uncaughtException', function (req, res, err) {
         console.error(err.stack);
         process.exit(1);
+    });
+
+    server.create(function (req, res, next) {
+        // Since we're assuming the fhandle is the file name, we can use the
+        // the dir handle directly
+        var nm = path.join(req.where.dir, req.where.name);
+        // 0644 octal, but prepush complains about octal
+        var mode = 420;
+        var flags = 'w';
+        fs.open(nm, flags, mode, function (f_err, f_fd) {
+            if (f_err) {
+                nfs.handle_error(f_err, req, res, next);
+            } else {
+                fs.closeSync(f_fd);
+
+                res.obj = nm;
+                try {
+                    var stats = fs.lstatSync(nm);
+                    res.setObjAttributes(stats);
+                } catch (e) {
+                    req.log.warn(e, 'create: lstat failed');
+                }
+                res.set_dir_wcc();
+
+                res.send();
+                next();
+            }
+        });
+    });
+
+    server.remove(function (req, res, next) {
+        // Since we're assuming the fhandle is the file name, we can use the
+        // the dir handle directly
+        var nm = path.join(req._object.dir, req._object.name);
+        fs.unlink(nm, function (f_err) {
+            if (f_err) {
+                nfs.handle_error(f_err, req, res, next);
+            } else {
+                res.set_dir_wcc();
+                res.send();
+                next();
+            }
+        });
     });
 
     server.getattr(function (req, res, next) {
@@ -87,6 +134,35 @@ before(function (cb) {
                 res.send();
                 next();
             }
+        });
+    });
+
+    server.write(function (req, res, next) {
+        fs.open(req.file, 'r+', function (o_err, fd) {
+            if (o_err) {
+                nfs.handle_error(o_err, req, res, next);
+                return;
+            }
+
+            fs.write(fd, req.data, 0, req.count, req.offset,
+              function (r_err, nbytes, buff) {
+                fs.close(fd, function (c_err) {
+                    if (c_err) {
+                        nfs.handle_error(c_err, req, res, next);
+                        return;
+                    } else if (r_err) {
+                        nfs.handle_error(c_err, req, res, next);
+                        return;
+                    }
+
+                    res.set_file_wcc();
+                    res.count = nbytes;
+                    res.committed = write_call.stable_how.FILE_SYNC;
+
+                    res.send();
+                    next();
+                });
+            });
         });
     });
 
@@ -260,16 +336,34 @@ test('getattr', function (t) {
 });
 
 
+test('create', function (t) {
+    var where = {
+        dir: '/tmp',
+        name: tst_fname
+    };
+    this.client.create(where, create_call.create_how.UNCHECKED, null,
+      function (err, reply) {
+        t.ifError(err);
+        t.ok(reply);
+        t.equal(reply.status, 0);
+        t.ok(reply.obj_attributes);
+        // Since we're assuming the fhandle is the file name, check the handle
+        t.equal(reply.obj.toString('utf8'), tst_fpath);
+        t.end();
+    });
+});
+
+
 test('lookup', function (t) {
     var what = {
-        dir: '/',
-        name: 'tmp'
+        dir: '/tmp',
+        name: tst_fname
     };
     this.client.lookup(what, function (err, reply) {
         t.ifError(err);
         t.ok(reply);
         t.equal(reply.status, 0);
-        t.equal(reply.object, '/tmp');
+        t.equal(reply.object, tst_fpath);
         t.ok(reply.obj_attributes);
         t.ok(reply.dir_attributes);
         t.end();
@@ -278,7 +372,7 @@ test('lookup', function (t) {
 
 
 test('access', function (t) {
-    this.client.access('/tmp', nfs.ACCESS3_READ, function (err, reply) {
+    this.client.access(tst_fpath, nfs.ACCESS3_READ, function (err, reply) {
         t.ifError(err);
         t.ok(reply);
         t.equal(reply.status, 0);
@@ -288,19 +382,35 @@ test('access', function (t) {
     });
 });
 
+test('write', function (t) {
+    var len = Buffer.byteLength(tst_data);
+
+    this.client.write(tst_fpath, 0, len, write_call.stable_how.FILE_SYNC,
+      tst_data, function (err, reply) {
+        t.ifError(err);
+        t.ok(reply);
+        t.equal(reply.status, 0);
+        t.ok(reply.count);
+        t.equal(reply.count, len);
+        t.ok(reply.committed);
+        t.equal(reply.committed, write_call.stable_how.FILE_SYNC);
+        t.end();
+    });
+});
+
+
 
 test('read', function (t) {
-    var str = '// Copyright 2013 Joyent, Inc.  All rights reserved.';
-    var len = Buffer.byteLength(str);
+    var len = Buffer.byteLength(tst_data);
 
-    this.client.read(__filename, 0, len, function (err, reply) {
+    this.client.read(tst_fpath, 0, len, function (err, reply) {
         t.ifError(err);
         t.ok(reply);
         t.equal(reply.status, 0);
         t.ok(reply.file_attributes);
-        t.notOk(reply.eof);
+        t.ok(reply.eof);
         t.ok(reply.data);
-        t.equal(reply.data.toString('utf8'), str);
+        t.equal(reply.data.toString('utf8'), tst_data);
         t.end();
     });
 });
@@ -331,7 +441,7 @@ test('readdir', function (t) {
 
 
 test('fsstat', function (t) {
-    this.client.fsstat('/tmp', function (err, reply) {
+    this.client.fsstat(tst_fpath, function (err, reply) {
         t.ifError(err);
         t.ok(reply);
         t.equal(reply.status, 0);
@@ -347,6 +457,19 @@ test('fsstat', function (t) {
     });
 });
 
+
+test('remove', function (t) {
+    var where = {
+        dir: '/tmp',
+        name: tst_fname
+    };
+    this.client.remove(where, function (err, reply) {
+        t.ifError(err);
+        t.ok(reply);
+        t.equal(reply.status, 0);
+        t.end();
+    });
+});
 
 
 test('fsinfo', function (t) {
