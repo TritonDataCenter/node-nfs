@@ -128,7 +128,6 @@ function set_attr(req, res, next) {
     } catch (e) {
         req.log.warn(e, 'set_attr: lstat failed');
         res.error(nfs.NFS3ERR_STALE);
-        res.set_wcc_data();
         next(false);
         return;
     }
@@ -141,7 +140,6 @@ function set_attr(req, res, next) {
         } catch (e) {
             req.log.warn(e, 'set_attr: chmod failed');
             res.error(nfs.NFS3ERR_STALE);
-            res.set_wcc_data();
             next(false);
             return;
         }
@@ -166,7 +164,6 @@ function set_attr(req, res, next) {
         } catch (e) {
             req.log.warn(e, 'set_attr: chown failed');
             res.error(nfs.NFS3ERR_STALE);
-            res.set_wcc_data();
             next(false);
             return;
         }
@@ -198,13 +195,11 @@ function set_attr(req, res, next) {
         } catch (e) {
             req.log.warn(e, 'set_attr: utimes failed');
             res.error(nfs.NFS3ERR_STALE);
-            res.set_wcc_data();
             next(false);
             return;
         }
     }
 
-    res.set_wcc_data();
     res.send();
     next();
 }
@@ -333,7 +328,6 @@ function create(req, res, next) {
     if (req.how === create_call.create_how.EXCLUSIVE) {
         req.log.warn(e, 'create: exclusive allowed');
         res.error(nfs.NFS3ERR_NOTSUPP);
-        res.set_dir_wcc();
         next(false);
         return;
     }
@@ -355,7 +349,6 @@ function create(req, res, next) {
 
     fs.open(nm, flags, mode, function (err, fd) {
         if (err) {
-            res.set_dir_wcc();
             nfs.handle_error(err, req, res, next);
         } else {
             fs.closeSync(fd);
@@ -398,7 +391,6 @@ function create(req, res, next) {
                 req.log.warn(e, 'create: lstat failed');
             }
 
-            res.set_dir_wcc();
             res.send();
             next();
         }
@@ -408,7 +400,6 @@ function create(req, res, next) {
 
 function mknod(req, res, next) {
     res.error(nfs.NFS3ERR_NOTSUPP);
-    res.set_dir_wcc();
     next(false);
 }
 
@@ -417,7 +408,6 @@ function mkdir(req, res, next) {
     if (req.where.name === "." || req.where.name === "..") {
         req.log.warn(e, 'mkdir: dot or dotdot not allowed');
         res.error(nfs.NFS3ERR_EXIST);
-        res.set_dir_wcc();
         next(false);
         return;
     }
@@ -426,11 +416,9 @@ function mkdir(req, res, next) {
 
     fs.stat(dir, function (err, stats) {
         if (err) {
-            res.set_dir_wcc();
             nfs.handle_error(err, req, res, next);
         } else if (!stats.isDirectory()) {
             res.error(nfs.NFS3ERR_NOTDIR);
-            res.set_dir_wcc();
             next(false);
         } else {
 
@@ -447,7 +435,6 @@ function mkdir(req, res, next) {
                     // If the dir disappeared, return as from the check above.
                     if (err2.code === 'ENOENT')
                         err2.code = 'ENOTDIR';
-                    res.set_dir_wcc();
                     nfs.handle_error(err2, req, res, next);
                 } else {
                     var uuid = libuuid.create();
@@ -484,7 +471,6 @@ function mkdir(req, res, next) {
                         req.log.warn(e, 'mkdir: lstat failed');
                     }
 
-                    res.set_dir_wcc();
                     res.send();
                     next();
                 }
@@ -498,7 +484,6 @@ function rmdir(req, res, next) {
     if (req._object.name === ".") {
         req.log.warn(e, 'rmdir: dot not allowed');
         res.error(nfs.NFS3ERR_INVAL);
-        res.set_dir_wcc();
         next(false);
         return;
     }
@@ -506,7 +491,6 @@ function rmdir(req, res, next) {
     if (req._object.name === "..") {
         req.log.warn(e, 'rmdir: dotdot not allowed');
         res.error(nfs.NFS3ERR_EXIST);
-        res.set_dir_wcc();
         next(false);
         return;
     }
@@ -516,11 +500,9 @@ function rmdir(req, res, next) {
 
     fs.lstat(nm, function (err, stats) {
         if (err) {
-            res.set_dir_wcc();
             nfs.handle_error(err, req, res, next);
         } else if (!stats.isDirectory()) {
             res.error(nfs.NFS3ERR_NOTDIR);
-            res.set_dir_wcc();
             next(false);
         } else {
 
@@ -528,7 +510,6 @@ function rmdir(req, res, next) {
                 if (err2) {
                     nfs.handle_error(err2, req, res, next);
                 } else {
-                    res.set_dir_wcc();
                     res.send();
                     next();
                 }
@@ -650,7 +631,6 @@ function link(req, res, next) {
 
     fs.link(f, nm, function (err) {
         if (err) {
-            res.set_linkdir_wcc();
             nfs.handle_error(err, req, res, next);
         } else {
             try {
@@ -660,7 +640,6 @@ function link(req, res, next) {
                 req.log.warn(e, 'link: lstat failed');
             }
 
-            res.set_linkdir_wcc();
             res.send();
             next();
         }
@@ -697,7 +676,6 @@ function symlink(req, res, next) {
 
     fs.symlink(req.symlink_data, slink, function (err) {
         if (err) {
-            res.set_dir_wcc();
             nfs.handle_error(err, req, res, next);
         } else {
             var uuid = libuuid.create();
@@ -736,7 +714,6 @@ function symlink(req, res, next) {
                 req.log.warn(e, 'symlink: lstat failed');
             }
 
-            res.set_dir_wcc();
             res.send();
             next();
         }
@@ -750,11 +727,9 @@ function remove(req, res, next) {
 
     fs.lstat(nm, function (err, stats) {
         if (err) {
-            res.set_dir_wcc();
             nfs.handle_error(err, req, res, next);
         } else if (stats.isDirectory()) {
             res.error(nfs.NFS3ERR_ACCES);
-            res.set_dir_wcc();
             next(false);
         } else {
 
@@ -762,7 +737,6 @@ function remove(req, res, next) {
                 if (err2) {
                     nfs.handle_error(err2, req, res, next);
                 } else {
-                    res.set_dir_wcc();
                     res.send();
                     next();
                 }
@@ -781,12 +755,8 @@ function rename(req, res, next) {
 
     fs.rename(fnm, tnm, function (err2) {
         if (err2) {
-            res.set_fromdir_wcc();
-            res.set_todir_wcc();
             nfs.handle_error(err2, req, res, next);
         } else {
-            res.set_fromdir_wcc();
-            res.set_todir_wcc();
             res.send();
             next();
         }
@@ -833,7 +803,6 @@ function write(req, res, next) {
 
     fs.open(f, 'r+', function (open_err, fd) {
         if (open_err) {
-            res.set_file_wcc();
             nfs.handle_error(open_err, req, res, next);
             return;
         }
@@ -841,7 +810,6 @@ function write(req, res, next) {
         fs.write(fd, req.data, 0, req.count, req.offset, function (err, n, b) {
             if (err) {
                 fs.closeSync(fd);
-                res.set_file_wcc();
                 nfs.handle_error(err, req, res, next);
             } else {
                 // Always sync to avoid double writes, see comment below for
@@ -850,7 +818,6 @@ function write(req, res, next) {
                     // XXX ignore errors on the sync
 
                     fs.closeSync(fd);
-                    res.set_file_wcc();
                     res.count = n;
 
                     // XXX Would like res.committed = req.stable but at least
@@ -873,7 +840,6 @@ function commit(req, res, next) {
 
     fs.open(f, 'r+', function (open_err, fd) {
         if (open_err) {
-            res.set_file_wcc();
             nfs.handle_error(open_err, req, res, next);
             return;
         }
@@ -882,7 +848,6 @@ function commit(req, res, next) {
             // XXX ignore errors on the sync
 
             fs.closeSync(fd);
-            res.set_file_wcc();
 
             res.send();
             next();

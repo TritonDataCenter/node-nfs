@@ -16,8 +16,10 @@ require('nodeunit-plus');
 var nfs = require('../lib');
 var create_call = require('../lib/nfs/create_call');
 var write_call = require('../lib/nfs/write_call');
+var tst_dname = 'nfs_testdir';
 var tst_fname = 'nfs_testfile.tst';
-var tst_fpath = '/tmp/nfs_testfile.tst';
+var tst_dir = path.join('/tmp', tst_dname);
+var tst_fpath = path.join(tst_dir, tst_fname);
 var tst_data = 'The quick brown fox jumped over the lazy dog.';
 
 
@@ -40,6 +42,43 @@ before(function (cb) {
         process.exit(1);
     });
 
+    server.mkdir(function (req, res, next) {
+        // Since we're assuming the fhandle is the file name, we can use the
+        // the dir handle directly
+        var nm = path.join(req.where.dir, req.where.name);
+        // 0755 octal, but prepush complains about octal
+        var mode = 493;
+        fs.mkdir(nm, mode, function (f_err) {
+            if (f_err) {
+                nfs.handle_error(f_err, req, res, next);
+            } else {
+                res.obj = nm;
+                try {
+                    var stats = fs.lstatSync(nm);
+                    res.setObjAttributes(stats);
+                } catch (e) {
+                    req.log.warn(e, 'create: lstat failed');
+                }
+                res.send();
+                next();
+            }
+        });
+    });
+
+    server.rmdir(function (req, res, next) {
+        // Since we're assuming the fhandle is the file name, we can use the
+        // the dir handle directly
+        var nm = path.join(req._object.dir, req._object.name);
+        fs.rmdir(nm, function (f_err) {
+            if (f_err) {
+                nfs.handle_error(f_err, req, res, next);
+            } else {
+                res.send();
+                next();
+            }
+        });
+    });
+
     server.create(function (req, res, next) {
         // Since we're assuming the fhandle is the file name, we can use the
         // the dir handle directly
@@ -60,8 +99,6 @@ before(function (cb) {
                 } catch (e) {
                     req.log.warn(e, 'create: lstat failed');
                 }
-                res.set_dir_wcc();
-
                 res.send();
                 next();
             }
@@ -76,7 +113,6 @@ before(function (cb) {
             if (f_err) {
                 nfs.handle_error(f_err, req, res, next);
             } else {
-                res.set_dir_wcc();
                 res.send();
                 next();
             }
@@ -155,7 +191,6 @@ before(function (cb) {
                         return;
                     }
 
-                    res.set_file_wcc();
                     res.count = nbytes;
                     res.committed = write_call.stable_how.FILE_SYNC;
 
@@ -336,9 +371,26 @@ test('getattr', function (t) {
 });
 
 
-test('create', function (t) {
+test('mkdir', function (t) {
     var where = {
         dir: '/tmp',
+        name: tst_dname
+    };
+    this.client.mkdir(where, null, function (err, reply) {
+        t.ifError(err);
+        t.ok(reply);
+        t.equal(reply.status, 0);
+        t.ok(reply.obj_attributes);
+        // Since we're assuming the fhandle is the file name, check the handle
+        t.equal(reply.obj.toString('utf8'), tst_dir);
+        t.end();
+    });
+});
+
+
+test('create', function (t) {
+    var where = {
+        dir: tst_dir,
         name: tst_fname
     };
     this.client.create(where, create_call.create_how.UNCHECKED, null,
@@ -356,7 +408,7 @@ test('create', function (t) {
 
 test('lookup', function (t) {
     var what = {
-        dir: '/tmp',
+        dir: tst_dir,
         name: tst_fname
     };
     this.client.lookup(what, function (err, reply) {
@@ -460,10 +512,24 @@ test('fsstat', function (t) {
 
 test('remove', function (t) {
     var where = {
-        dir: '/tmp',
+        dir: tst_dir,
         name: tst_fname
     };
     this.client.remove(where, function (err, reply) {
+        t.ifError(err);
+        t.ok(reply);
+        t.equal(reply.status, 0);
+        t.end();
+    });
+});
+
+
+test('rmdir', function (t) {
+    var where = {
+        dir: '/tmp',
+        name: tst_dname
+    };
+    this.client.rmdir(where, function (err, reply) {
         t.ifError(err);
         t.ok(reply);
         t.equal(reply.status, 0);
