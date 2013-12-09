@@ -19,6 +19,7 @@ var sattr3 = require('../lib/nfs/sattr3');
 var fattr3 = require('../lib/nfs/fattr3');
 var create_call = require('../lib/nfs/create_call');
 var write_call = require('../lib/nfs/write_call');
+var murmur = require('./murmur3');
 
 ///--- Globals
 
@@ -521,44 +522,30 @@ function rmdir(req, res, next) {
 
 function readdir(req, res, next) {
     var dir = FILE_HANDLES[req.dir];
+
     fs.readdir(dir, function (err, files) {
         if (err) {
             nfs.handle_error(err, req, res, next);
-        } else {
-            res.eof = (files.length < req.count);
-            res.setDirAttributes(req._stats);
-
-            var barrier = vasync.barrier();
-            var error = null;
-
-            barrier.once('drain', function () {
-                if (error) {
-                    nfs.handle_error(error, req, res, next);
-                } else {
-                    res.send();
-                    next();
-                }
-            });
-
-            files.forEach(function (f) {
-                barrier.start('stat::' + f);
-
-                var p = path.join(dir, f);
-
-                fs.lstat(p, function (err2, stat) {
-                    barrier.done('stat::' + f);
-                    if (err2) {
-                        error = error || err2;
-                    } else {
-                        res.addEntry({
-                            fileid: stat.ino,
-                            name: f,
-                            cookie: stat.mtime.getTime()
-                        });
-                    }
-                });
-            });
+            return;
         }
+        res.eof = (files.length < req.count);
+        res.setDirAttributes(req._stats);
+
+        var error = null;
+
+        var cook = 1;
+        files.forEach(function (f) {
+            var p = path.join(dir, f);
+
+            res.addEntry({
+                fileid: murmur(path.join(dir, f), 1234),
+                name: f,
+                cookie: cook++
+            });
+        });
+
+        res.send();
+        next();
     });
 }
 
