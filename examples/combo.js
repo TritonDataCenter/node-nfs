@@ -531,14 +531,12 @@ function readdir(req, res, next) {
         res.eof = (files.length < req.count);
         res.setDirAttributes(req._stats);
 
-        var error = null;
-
         var cook = 1;
         files.forEach(function (f) {
             var p = path.join(dir, f);
 
             res.addEntry({
-                fileid: murmur(path.join(dir, f), 1234),
+                fileid: murmur(p, 1234),
                 name: f,
                 cookie: cook++
             });
