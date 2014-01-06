@@ -1,4 +1,4 @@
-// Copyright 2013 Joyent, Inc.  All rights reserved.
+// Copyright 2014 Joyent, Inc.  All rights reserved.
 //
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -9,7 +9,6 @@ var path = require('path');
 var util = require('util');
 
 var assert = require('assert-plus');
-var libuuid = require('libuuid');
 var statvfs = require('statvfs');
 var fattr3 = require('../lib/nfs/fattr3');
 require('nodeunit-plus');

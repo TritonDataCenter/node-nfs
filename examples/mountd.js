@@ -1,4 +1,4 @@
-// Copyright 2013 Joyent, Inc.  All rights reserved.
+// Copyright 2014 Joyent, Inc.  All rights reserved.
 //
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -9,7 +9,7 @@ var path = require('path');
 
 var assert = require('assert-plus');
 var bunyan = require('bunyan');
-var libuuid = require('libuuid');
+var libuuid = require('node-uuid');
 var nfs = require('../lib');
 var rpc = require('oncrpc');
 
@@ -56,7 +56,7 @@ function check_dirpath(req, res, next) {
         } else if (!stats.isDirectory()) {
             next(new nfs.MountNotDirError());
         } else {
-            res.setFileHandle(libuuid.create());
+            res.setFileHandle(libuuid.v4());
             res.writeHead();
             res.end();
             next();

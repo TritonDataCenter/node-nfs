@@ -1,4 +1,4 @@
-// Copyright 2013 Joyent, Inc.  All rights reserved.
+// Copyright 2014 Joyent, Inc.  All rights reserved.
 //
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -7,7 +7,7 @@
 var util = require('util');
 
 var assert = require('assert-plus');
-var libuuid = require('libuuid');
+var libuuid = require('node-uuid');
 require('nodeunit-plus');
 
 var nfs = require('../lib');
@@ -44,7 +44,7 @@ before(function (cb) {
 
     server.mnt(function mount(req, res, next) {
         assert.ok(req.dirpath);
-        var uuid = libuuid.create();
+        var uuid = libuuid.v4();
         server.mounts[req.dirpath] = uuid;
         res.setFileHandle(uuid);
         res.send();

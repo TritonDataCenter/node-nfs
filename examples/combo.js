@@ -1,4 +1,4 @@
-// Copyright 2013 Joyent, Inc.  All rights reserved.
+// Copyright 2014 Joyent, Inc.  All rights reserved.
 //
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -9,7 +9,7 @@ var path = require('path');
 
 var assert = require('assert-plus');
 var bunyan = require('bunyan');
-var libuuid = require('libuuid');
+var libuuid = require('node-uuid');
 var nfs = require('../lib');
 var rpc = require('oncrpc');
 var statvfs = require('statvfs');
@@ -68,7 +68,7 @@ function check_dirpath(req, res, next) {
 
 
 function mount(req, res, next) {
-    var uuid = libuuid.create();
+    var uuid = libuuid.v4();
     MOUNTS[uuid] = req._dirpath;
     FILE_HANDLES[uuid] = req._dirpath;
     res.setFileHandle(uuid);
@@ -308,7 +308,7 @@ function lookup(req, res, next) {
                 if (err2) {
                     nfs.handle_error(err2, req, res, next);
                 } else {
-                    var uuid = libuuid.create();
+                    var uuid = libuuid.v4();
                     FILE_HANDLES[uuid] = f;
 
                     res.object = uuid;
@@ -354,7 +354,7 @@ function create(req, res, next) {
         } else {
             fs.closeSync(fd);
 
-            var uuid = libuuid.create();
+            var uuid = libuuid.v4();
             FILE_HANDLES[uuid] = nm;
 
             res.obj = uuid;
@@ -438,7 +438,7 @@ function mkdir(req, res, next) {
                         err2.code = 'ENOTDIR';
                     nfs.handle_error(err2, req, res, next);
                 } else {
-                    var uuid = libuuid.create();
+                    var uuid = libuuid.v4();
                     FILE_HANDLES[uuid] = nm;
 
                     res.obj = uuid;
@@ -589,7 +589,7 @@ function readdirplus(req, res, next) {
                         }
 
                         if (! handle) {
-                            var uuid = libuuid.create();
+                            var uuid = libuuid.v4();
                             FILE_HANDLES[uuid] = p;
                             handle = uuid;
                         }
@@ -663,7 +663,7 @@ function symlink(req, res, next) {
         if (err) {
             nfs.handle_error(err, req, res, next);
         } else {
-            var uuid = libuuid.create();
+            var uuid = libuuid.v4();
             FILE_HANDLES[uuid] = slink;
 
             res.obj = uuid;

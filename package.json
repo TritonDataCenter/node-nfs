@@ -25,9 +25,9 @@
     },
     "devDependencies": {
         "bunyan": "0.22.0",
-        "libuuid": "0.1.2",
         "nodeunit": "0.8.1",
         "nodeunit-plus": "0.0.1",
+        "node-uuid": "1.4.1",
         "statvfs": "2.1.0",
         "vasync": "1.4.0"
     },
