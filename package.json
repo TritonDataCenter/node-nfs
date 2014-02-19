@@ -19,7 +19,6 @@
     "dependencies": {
         "assert-plus": "0.1.4",
         "clone": "0.1.10",
-        "crc": "0.2.1",
         "oncrpc": "git+ssh://git@github.com:joyent/node-oncrpc.git#master",
         "once": "1.2.0"
     },
