@@ -42,6 +42,19 @@ before(function (cb) {
         next();
     });
 
+    server.exprt(function exprt(req, res, next) {
+        Object.keys(server.mounts).forEach(function (k) {
+            res.addExport({
+                dirpath: k,
+                groups: [{
+                    name: "0.0.0.0/0"
+                }]
+            });
+        });
+        res.send();
+        next();
+    });
+
     server.mnt(function mount(req, res, next) {
         assert.ok(req.dirpath);
         var uuid = libuuid.v4();
