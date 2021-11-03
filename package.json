@@ -1,7 +1,7 @@
 {
     "name": "nfs",
     "description": "Node.js bindings for NFS",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "author": {
         "name": "Joyent, Inc.",
         "url": "http://joyent.com/"
@@ -9,7 +9,7 @@
     "license": "MPL-2.0",
     "repository": {
         "type": "git",
-        "url": "git://github.com/joyent/node-nfs.git"
+        "url": "https://github.com/joyent/node-nfs.git"
     },
     "bugs": {
         "url": "https://github.com/joyent/node-nfs/issues"
@@ -33,6 +33,6 @@
         "test": "for f in $(ls test/*.test.js) ; do nodeunit $f ; done"
     },
     "engines": {
-        "node" : ">=0.10.18 <0.12"
+        "node": ">=0.10.18 <0.12"
     }
 }
